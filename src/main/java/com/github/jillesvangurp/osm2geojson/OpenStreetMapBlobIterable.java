@@ -19,7 +19,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-package com.github.jillesvangurp;
+package com.github.jillesvangurp.osm2geojson;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
