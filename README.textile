@@ -1,0 +1,54 @@
+h1. Introduction
+
+Osm2geojson is a little project that utilizes several of my other github projects to convert open streetmap xml to a more
+usable, geojson like format.
+
+
+h1. Why and How?
+
+The problem with the osm xml is that it is basically a database dump of the three tables they have for nodes, ways, and relations. Most interesting applications probably require these tables to be joined. 
+
+This tool does this and stores the result using my PersistentCachingMap project using the long ids in the xml as the keys. This gives you a nice little key value store to work with and you can easily export from there to a file. 
+
+Nodes, ways, and relations are stored in three different maps. The maps store in many small gzipped text files and contain the id;json.
+
+The json tries to follow the geojson conventions. 
+
+So nodes store an array of doubles for the coordinate and the tags. Ways consist of either a geojson Polygon, or LineString. Finally ways, embed members that are either ways or nodes.
+
+This tool will likely need a lot of work and you may see some commits in the near future.
+
+So far, it is reasonably performant. Processing Brandenburg takes about 4 minutes on my laptop. That's 4.3 million nodes and 0.6M ways and a few tens of thousand relations. The entire world is a bit more of a challenge and it might take a while before I have time to try that. I'd be interested to see what would happen.
+
+There are several projects out there that are supposedly good for doing what I do here. The problem is that they are not an exact match for my requirements and are quite complex. I had most of the work done to do what I needed and was able to develop this in a few days reusing stuff I already had.
+
+I like to keep things fast and this code processes things concurrently and utilizes regular expressions to keep things fast (beats using xpath by about a factor 50). My intention with PersistentCachingMap is to have a good compromise between keeping things cached in memory vs. reading/writing disk. At least on Brandenburg this works as expected and I profiled the code to mostly spend time bzunzipping the input and unleashing regular expressions on the result. Having a lot of RAM for the map and disk cache will help keep things performant. I run this with a heap of 5GB.
+
+If random accessing nodes proves to be problematic, I may switch to using my geoKV, which would cache geographically rather than by database id. Given that the ids seem to be sorted in the dump, I suspect using the current approach might work out better.
+
+h1. Caveats
+
+* Not tested on full osm xml for the entire world. This might take a while and takes up a lot of disk space. I've only tested on Brandenburg (so far).
+* Currently this tool does not do much filtering of e.g. tags
+* Currently this tool does not store user or version info.
+* Probably this tool needs adaptation if you intend to use it. That should be fairly straightforward.
+* no unit test, I will likely add some later. I decided to release early in this case.
+
+Consider yourself warned. Otherwise it is all good :-).
+
+h1. Installation
+
+It's a maven project. So, checking it out and doing a mvn clean install should do the trick. You will need several of my other github projects as well.
+
+If you like to use pre-built jars, you can utilize my private maven repository as explained "here":http://www.jillesvangurp.com/2013/02/27/maven-and-my-github-projects/
+
+Alternatively, you can exercise your rights under the license and simply copy and adapt. The "license":https://github.com/jillesvangurp/persistentcachingmap/blob/master/LICENSE allows you to do this and I have no problems with this.
+
+Should anyone like this licensed differently, please contact me.
+
+If anyone wants to fix stuff just send me a pull request.
+
+h1. Changelog
+
+* 1.0 (TODO)
+** First release
