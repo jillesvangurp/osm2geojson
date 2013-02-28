@@ -88,6 +88,9 @@ public class OsmProcessor {
 
             @Override
             public boolean ok(JsonObject o) {
+                JsonArray coordinate = o.getArray("l");
+                o.put("location", object().put("type", "Point").put("coordinates", coordinate).get());
+                o.remove("l");
                 return StringUtils.isNotEmpty(o.getString("name")) ;
             }},"nodes.gz");
         System.out.println("Exported nodes");
