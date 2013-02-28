@@ -71,30 +71,8 @@ public class OsmProcessor {
         try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
             try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
-                    processOsm(nodeKv, wayKv, relationKv, osmXml);
-                    exportMap(nodeKv, new Filter() {
-
-                        @Override
-                        public boolean ok(JsonObject o) {
-                            JsonObject tags = o.getObject("t");
-                            return tags != null && StringUtils.isNotEmpty(tags.getString("name")) ;
-                        }},"nodes.gz");
-                    System.out.println("Exported nodes");
-                    exportMap(wayKv, new Filter() {
-
-                        @Override
-                        public boolean ok(JsonObject o) {
-                            JsonObject tags = o.getObject("t");
-                            return o.get("incomplete") == null && tags != null && StringUtils.isNotEmpty(tags.getString("name"));
-                        }},"ways.gz");
-                    System.out.println("Exported ways");
-                    exportMap(relationKv,new Filter() {
-
-                        @Override
-                        public boolean ok(JsonObject o) {
-                            return o.get("incomplete") == null;
-                        }}, "relations.gz");
-                    System.out.println("Exported relations");
+//                    processOsm(nodeKv, wayKv, relationKv, osmXml);
+                    export(nodeKv, wayKv, relationKv);
                 }
                 System.out.println("closed relationKv");
             }
@@ -102,6 +80,31 @@ public class OsmProcessor {
         }
         System.out.println("closed nodeKv");
         System.out.println("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
+    }
+
+    private static void export(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
+            PersistentCachingMap<Long, JsonObject> relationKv) throws IOException {
+        exportMap(nodeKv, new Filter() {
+
+            @Override
+            public boolean ok(JsonObject o) {
+                return StringUtils.isNotEmpty(o.getString("name")) ;
+            }},"nodes.gz");
+        System.out.println("Exported nodes");
+        exportMap(wayKv, new Filter() {
+
+            @Override
+            public boolean ok(JsonObject o) {
+                return o.get("incomplete") == null && StringUtils.isNotEmpty(o.getString("name"));
+            }},"ways.gz");
+        System.out.println("Exported ways");
+        exportMap(relationKv,new Filter() {
+
+            @Override
+            public boolean ok(JsonObject o) {
+                return o.get("incomplete") == null;
+            }}, "relations.gz");
+        System.out.println("Exported relations");
     }
 
     interface Filter {
