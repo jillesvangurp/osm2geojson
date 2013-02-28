@@ -23,6 +23,7 @@ package com.github.jillesvangurp.osm2geojson;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
+import static com.github.jsonj.tools.JsonBuilder.primitive;
 
 import java.io.BufferedWriter;
 import java.io.FileInputStream;
@@ -56,7 +57,8 @@ import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
 
 public class OsmProcessor {
-    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by","source","id","latitude","longitude","location","members"));
+    // these tag names are either depended on by this class or noisy; so simply drop them if we encounter them
+    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by","source","id","latitude","longitude","location","members","ways","relations","l"));
 
     public static void main(String[] args) throws IOException {
         String osmXml;
@@ -71,7 +73,7 @@ public class OsmProcessor {
         try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
             try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
-//                    processOsm(nodeKv, wayKv, relationKv, osmXml);
+                    processOsm(nodeKv, wayKv, relationKv, osmXml);
                     export(nodeKv, wayKv, relationKv);
                 }
                 System.out.println("closed relationKv");
@@ -211,6 +213,11 @@ public class OsmProcessor {
                             Long ref = Long.valueOf(ndm.group(1));
                             JsonObject node = nodeKv.get(ref);
                             if (node != null) {
+                                JsonObject clone = node.deepClone();
+                                clone.getOrCreateArray("ways").add(primitive(id));
+                                // store a deep clone with a ref to the relation
+                                nodeKv.put(ref, clone);
+
                                 coordinates.add(node.getArray("l"));
                             } else {
                                 way.put("incomplete", true);
@@ -250,6 +257,10 @@ public class OsmProcessor {
                             if ("way".equalsIgnoreCase(type)) {
                                 JsonObject way = wayKv.get(ref);
                                 if (way != null) {
+                                    JsonObject clone = way.deepClone();
+                                    clone.getOrCreateArray("relations").add(primitive(id));
+                                    // store a deep clone with a ref to the relation
+                                    wayKv.put(ref, clone);
                                     way.put("type", type);
                                     way.put("role", role);
                                     members.add(way);
@@ -259,6 +270,10 @@ public class OsmProcessor {
                             } else if ("node".equalsIgnoreCase(type)) {
                                 JsonObject node = nodeKv.get(ref);
                                 if (node != null) {
+                                    JsonObject clone = node.deepClone();
+                                    clone.getOrCreateArray("relations").add(primitive(id));
+                                    // store a deep clone with a ref to the relation
+                                    nodeKv.put(ref, clone);
                                     node.put("type", type);
                                     node.put("role", role);
                                     members.add(node);
