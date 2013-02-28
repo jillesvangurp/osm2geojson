@@ -24,29 +24,40 @@ package com.github.jillesvangurp.osm2geojson;
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
 
+import java.io.BufferedWriter;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.Map.Entry;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPOutputStream;
 
 import javax.xml.xpath.XPathExpressionException;
 
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+import org.apache.commons.lang.StringUtils;
 import org.xml.sax.SAXException;
 
 import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
 import com.github.jsonj.tools.JsonParser;
+import com.google.common.collect.Sets;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.Iterables;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
 
 public class OsmProcessor {
+    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by","source","id","latitude","longitude","location","members"));
+
     public static void main(String[] args) throws IOException {
         String osmXml;
         if(args.length>0) {
@@ -59,8 +70,31 @@ public class OsmProcessor {
         JsonObjectCodec codec = new JsonObjectCodec(new JsonParser());
         try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
             try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
-                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 500)) {
+                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
                     processOsm(nodeKv, wayKv, relationKv, osmXml);
+                    exportMap(nodeKv, new Filter() {
+
+                        @Override
+                        public boolean ok(JsonObject o) {
+                            JsonObject tags = o.getObject("t");
+                            return tags != null && StringUtils.isNotEmpty(tags.getString("name")) ;
+                        }},"nodes.gz");
+                    System.out.println("Exported nodes");
+                    exportMap(wayKv, new Filter() {
+
+                        @Override
+                        public boolean ok(JsonObject o) {
+                            JsonObject tags = o.getObject("t");
+                            return o.get("incomplete") == null && tags != null && StringUtils.isNotEmpty(tags.getString("name"));
+                        }},"ways.gz");
+                    System.out.println("Exported ways");
+                    exportMap(relationKv,new Filter() {
+
+                        @Override
+                        public boolean ok(JsonObject o) {
+                            return o.get("incomplete") == null;
+                        }}, "relations.gz");
+                    System.out.println("Exported relations");
                 }
                 System.out.println("closed relationKv");
             }
@@ -68,6 +102,22 @@ public class OsmProcessor {
         }
         System.out.println("closed nodeKv");
         System.out.println("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
+    }
+
+    interface Filter {
+        boolean ok(JsonObject o);
+    }
+
+    private static void exportMap(PersistentCachingMap<Long, JsonObject> map, Filter f, String file) throws IOException {
+        try(BufferedWriter out = gzipFileWriter(file)) {
+            for (Entry<Long, JsonObject> entry : map) {
+                JsonObject object = entry.getValue();
+                if(f.ok(object)) {
+                    out.write(object.toString());
+                    out.newLine();
+                }
+            }
+        }
     }
 
     private static void processOsm(final PersistentCachingMap<Long, JsonObject> nodeKv, final PersistentCachingMap<Long, JsonObject> wayKv,
@@ -78,6 +128,7 @@ public class OsmProcessor {
         final Pattern kvPattern = Pattern.compile("k=\"(.*?)\"\\s+v=\"(.*?)\"");
         final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
         final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
+
 
         try (LineIterable lineIterable = new LineIterable(bzip2Reader(osmXml));) {
             OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
@@ -117,13 +168,11 @@ public class OsmProcessor {
                             double latitude = Double.valueOf(latm.group(1));
                             double longitude = Double.valueOf(lonm.group(1));
                             JsonObject node = object().put("id", id).put("l", array(latitude, longitude)).get();
-                            JsonObject tags = new JsonObject();
                             while (kvm.find()) {
-                                tags.put(kvm.group(1), kvm.group(2));
-
-                            }
-                            if (tags.size() > 0) {
-                                node.put("t", tags);
+                                String name = kvm.group(1);
+                                if(!BLACKLISTED_TAGS.contains(name)) {
+                                    node.put(name, kvm.group(2));
+                                }
                             }
                             nodeKv.put(id, node);
                         } else {
@@ -145,13 +194,11 @@ public class OsmProcessor {
                     if (idm.find()) {
                         long id = Long.valueOf(idm.group(1));
                         JsonObject way = object().put("id", id).get();
-                        JsonObject tags = new JsonObject();
                         while (kvm.find()) {
-                            tags.put(kvm.group(1), kvm.group(2));
-
-                        }
-                        if (tags.size() > 0) {
-                            way.put("t", tags);
+                            String name = kvm.group(1);
+                            if(!BLACKLISTED_TAGS.contains(name)) {
+                                way.put(name, kvm.group(2));
+                            }
                         }
                         JsonArray coordinates = array();
                         while (ndm.find()) {
@@ -160,7 +207,7 @@ public class OsmProcessor {
                             if (node != null) {
                                 coordinates.add(node.getArray("l"));
                             } else {
-//                                System.err.println("way " + id + " has illegal node ref " + ref);
+                                way.put("incomplete", true);
                             }
                         }
                         if (coordinates.size() > 1 && coordinates.get(0).equals(coordinates.get(coordinates.size() - 1))) {
@@ -182,13 +229,11 @@ public class OsmProcessor {
                     if(idm.find()) {
                         long id = Long.valueOf(idm.group(1));
                         JsonObject relation = object().put("id", id).get();
-                        JsonObject tags = new JsonObject();
                         while (kvm.find()) {
-                            tags.put(kvm.group(1), kvm.group(2));
-
-                        }
-                        if (tags.size() > 0) {
-                            relation.put("t", tags);
+                            String name = kvm.group(1);
+                            if(!BLACKLISTED_TAGS.contains(name)) {
+                                relation.put(name, kvm.group(2));
+                            }
                         }
 
                         JsonArray members = array();
@@ -203,7 +248,7 @@ public class OsmProcessor {
                                     way.put("role", role);
                                     members.add(way);
                                 } else {
-//                                    System.err.println("relation " + id + " has illegal way ref " + ref);
+                                    relation.put("incomplete", true);
                                 }
                             } else if ("node".equalsIgnoreCase(type)) {
                                 JsonObject node = nodeKv.get(ref);
@@ -212,7 +257,7 @@ public class OsmProcessor {
                                     node.put("role", role);
                                     members.add(node);
                                 } else {
-//                                    System.err.println("relation " + id + " has illegal node ref " + ref);
+                                    relation.put("incomplete", true);
                                 }
                             }
                         }
@@ -241,7 +286,12 @@ public class OsmProcessor {
         }
     }
 
-    static InputStreamReader bzip2Reader(String fileName) throws IOException, FileNotFoundException {
+    public static InputStreamReader bzip2Reader(String fileName) throws IOException, FileNotFoundException {
         return new InputStreamReader(new BZip2CompressorInputStream(new FileInputStream(fileName)), Charset.forName("UTF-8"));
     }
+
+    public static BufferedWriter gzipFileWriter(String file) throws IOException {
+        return new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(new FileOutputStream(file)), Charset.forName("utf-8")));
+    }
+
 }
