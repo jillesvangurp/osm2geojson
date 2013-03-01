@@ -25,7 +25,9 @@ import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
 import static com.github.jsonj.tools.JsonBuilder.primitive;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -34,10 +36,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 import javax.xml.xpath.XPathExpressionException;
@@ -48,6 +52,7 @@ import org.xml.sax.SAXException;
 
 import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
+import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
 import com.github.jsonj.tools.JsonParser;
 import com.google.common.collect.Sets;
@@ -57,12 +62,18 @@ import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
 
 public class OsmProcessor {
+    private static final String RELATIONS_GZ = "relations.gz";
+    private static final String WAYS_GZ = "ways.gz";
+    private static final String NODES_GZ = "nodes.gz";
     // these tag names are either depended on by this class or noisy; so simply drop them if we encounter them
-    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by","source","id","latitude","longitude","location","members","ways","relations","l"));
+    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id", "latitude", "longitude", "location",
+            "members", "ways", "relations", "l"));
+
+    private static final JsonParser parser = new JsonParser();
 
     public static void main(String[] args) throws IOException {
         String osmXml;
-        if(args.length>0) {
+        if (args.length > 0) {
             osmXml = args[0];
         } else {
             osmXml = "/Users/jilles/data/brandenburg.osm.bz2";
@@ -73,8 +84,11 @@ public class OsmProcessor {
         try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
             try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
-                    processOsm(nodeKv, wayKv, relationKv, osmXml);
-                    export(nodeKv, wayKv, relationKv);
+//                    processOsm(nodeKv, wayKv, relationKv, osmXml);
+//                    exportGeoJson(nodeKv, wayKv, relationKv);
+                    fixGeometryInRelations(RELATIONS_GZ);
+
+                    // filterWays();
                 }
                 System.out.println("closed relationKv");
             }
@@ -84,31 +98,165 @@ public class OsmProcessor {
         System.out.println("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
     }
 
-    private static void export(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
+//    private static void filterWays() throws IOException {
+//        try (LineIterable it = LineIterable.openGzipFile(WAYS_GZ)) {
+//            for (String line : it) {
+//
+//            }
+//        }
+//    }
+
+    private static void fixGeometryInRelations(String relationsGz) throws IOException {
+        try (BufferedWriter out = gzipFileWriter("relation-fixed.gz")) {
+            try (LineIterable it = LineIterable.openGzipFile(RELATIONS_GZ)) {
+                for (String line : it) {
+                    JsonObject relation = parser.parse(line).asObject();
+                    String type = relation.getString("type");
+                    if ("multipolygon".equalsIgnoreCase(type)) {
+                        try {
+                            JsonArray multiPolygon = calculateMultiPolygonForRelation(relation);
+                            relation.put("geometry", object().put("type", "MultiPolygon").put("coordinates", multiPolygon).get());
+                            if(relation.getArray("members").size() == 0) {
+                                relation.remove("members");
+                            }
+                            out.write(relation.toString());
+                            out.newLine();
+                        } catch (Exception e) {
+                            System.err.println("skipping member: " + e.getMessage() + "\n" + relation.toString());
+                        }
+                    } else {
+                        System.err.println("unsupported relation type " + type);
+                    }
+                }
+            }
+        }
+    }
+
+    static JsonArray calculateMultiPolygonForRelation(JsonObject relation) {
+        JsonArray members = relation.getArray("members");
+        JsonArray multiPolygon = array();
+        JsonArray currentPolygon = null;
+        JsonArray currentSegment = null;
+        String lastRole = null;
+
+        Iterator<JsonElement> mit = members.iterator();
+        while (mit.hasNext()) {
+            JsonObject member = mit.next().asObject();
+            String memberType = member.getString("type");
+            String memberRole = member.getString("role");
+            JsonObject geometry = member.getObject("geometry");
+            String geometryType = geometry.getString("type");
+            JsonArray coordinates = geometry.getArray("coordinates");
+            if ("way".equals(memberType)) {
+                if ("Polygon".equalsIgnoreCase(geometryType)) {
+                    if ("outer".equalsIgnoreCase(memberRole)) {
+                        // it's a new polygon
+                        if (currentPolygon != null) {
+                            multiPolygon.add(currentPolygon);
+                        }
+                        currentPolygon = array();
+                        // coordinates is a 3d array with one 2d element for a polygon way
+                        currentPolygon.add(coordinates.get(0));
+
+                    } else if ("inner".equalsIgnoreCase(memberRole)) {
+                        if (currentPolygon == null) {
+                            throw new IllegalStateException("unexpected inner polygon");
+                        } else {
+                            currentPolygon.add(coordinates.get(0));
+                        }
+                    } else {
+                        throw new IllegalStateException("unexpected role (polygon) " + memberRole);
+                    }
+                } else if ("LineString".equalsIgnoreCase(geometryType)) {
+                    JsonArray newSegment = coordinates;
+                    if (currentPolygon == null) {
+                        // first
+                        currentPolygon = array();
+                        currentSegment = newSegment;
+                    } else if (currentSegment == null) {
+                        currentSegment = newSegment;
+                    } else {
+                        if (lastRole.equalsIgnoreCase(memberRole)) {
+                            // same segment
+                            JsonArray lastCoordinateOfNewSegment = newSegment.get(newSegment.size() - 1).asArray();
+                            JsonArray firstCoordinateOfLastSegment = currentSegment.get(0).asArray();
+                            currentSegment.addAll(newSegment);
+                            if (firstCoordinateOfLastSegment.equals(lastCoordinateOfNewSegment)) {
+                                // close the polygon
+                                currentPolygon.add(currentSegment);
+                                currentSegment = null;
+                            }
+                        } else {
+                            if ("outer".equalsIgnoreCase(memberRole)) {
+                                // a new polygon
+                                multiPolygon.add(currentPolygon);
+                                currentPolygon = array();
+                                currentSegment = newSegment;
+                            } else if ("inner".equalsIgnoreCase(memberRole)) {
+                                // first segment of a 'hole'
+                                currentSegment = newSegment;
+                            } else {
+                                throw new IllegalStateException("unexpected role (multiline) " + memberRole);
+                            }
+                        }
+                    }
+                } else {
+                    throw new IllegalStateException("unexpected geometry type " + geometryType);
+                }
+                lastRole = memberRole;
+                // FIXME tags
+                for(Entry<String, JsonElement> e: member.entrySet()) {
+                    String key = e.getKey();
+                    if(!relation.containsKey(key) && ! BLACKLISTED_TAGS.contains(key)) {
+                        relation.put(key, e.getValue());
+                    }
+                }
+
+                // remove ways that have been added to the polygon
+                mit.remove();
+
+            } else {
+                // skip node members
+            }
+        }
+        if(currentPolygon != null && currentPolygon.size() > 0) {
+            multiPolygon.add(currentPolygon);
+        }
+        return multiPolygon;
+    }
+
+    private static void expandPoint(JsonObject o) {
+        JsonArray coordinate = o.getArray("l");
+        o.put("geometry", object().put("type", "Point").put("coordinates", coordinate).get());
+        o.remove("l");
+    }
+
+    private static void exportGeoJson(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
             PersistentCachingMap<Long, JsonObject> relationKv) throws IOException {
         exportMap(nodeKv, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
-                JsonArray coordinate = o.getArray("l");
-                o.put("location", object().put("type", "Point").put("coordinates", coordinate).get());
-                o.remove("l");
-                return StringUtils.isNotEmpty(o.getString("name")) ;
-            }},"nodes.gz");
+                expandPoint(o);
+                return StringUtils.isNotEmpty(o.getString("name"));
+            }
+        }, NODES_GZ);
         System.out.println("Exported nodes");
         exportMap(wayKv, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
-                return o.get("incomplete") == null && StringUtils.isNotEmpty(o.getString("name"));
-            }},"ways.gz");
+                return o.get("incomplete") == null && StringUtils.isNotEmpty(o.getString("name")) && o.get("relations") == null;
+            }
+        }, WAYS_GZ);
         System.out.println("Exported ways");
-        exportMap(relationKv,new Filter() {
+        exportMap(relationKv, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
                 return o.get("incomplete") == null;
-            }}, "relations.gz");
+            }
+        }, RELATIONS_GZ);
         System.out.println("Exported relations");
     }
 
@@ -117,10 +265,10 @@ public class OsmProcessor {
     }
 
     private static void exportMap(PersistentCachingMap<Long, JsonObject> map, Filter f, String file) throws IOException {
-        try(BufferedWriter out = gzipFileWriter(file)) {
+        try (BufferedWriter out = gzipFileWriter(file)) {
             for (Entry<Long, JsonObject> entry : map) {
                 JsonObject object = entry.getValue();
-                if(f.ok(object)) {
+                if (f.ok(object)) {
                     out.write(object.toString());
                     out.newLine();
                 }
@@ -136,7 +284,6 @@ public class OsmProcessor {
         final Pattern kvPattern = Pattern.compile("k=\"(.*?)\"\\s+v=\"(.*?)\"");
         final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
         final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
-
 
         try (LineIterable lineIterable = new LineIterable(bzip2Reader(osmXml));) {
             OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
@@ -178,7 +325,7 @@ public class OsmProcessor {
                             JsonObject node = object().put("id", id).put("l", array(latitude, longitude)).get();
                             while (kvm.find()) {
                                 String name = kvm.group(1);
-                                if(!BLACKLISTED_TAGS.contains(name)) {
+                                if (!BLACKLISTED_TAGS.contains(name)) {
                                     node.put(name, kvm.group(2));
                                 }
                             }
@@ -204,7 +351,7 @@ public class OsmProcessor {
                         JsonObject way = object().put("id", id).get();
                         while (kvm.find()) {
                             String name = kvm.group(1);
-                            if(!BLACKLISTED_TAGS.contains(name)) {
+                            if (!BLACKLISTED_TAGS.contains(name)) {
                                 way.put(name, kvm.group(2));
                             }
                         }
@@ -224,9 +371,13 @@ public class OsmProcessor {
                             }
                         }
                         if (coordinates.size() > 1 && coordinates.get(0).equals(coordinates.get(coordinates.size() - 1))) {
-                            way.put("location", object().put("type", "Polygon").put("coordinates", array(coordinates)).get());
+                            // geojson polygon is 3d array of primary polygon + holes
+                            JsonArray polygon = array();
+                            polygon.add(coordinates);
+                            way.put("geometry", object().put("type", "Polygon").put("coordinates", polygon).get());
                         } else {
-                            way.put("location", object().put("type", "LineString").put("coordinates", coordinates).get());
+                            // geojson linestring is 2d array of points
+                            way.put("geometry", object().put("type", "LineString").put("coordinates", coordinates).get());
                         }
                         wayKv.put(id, way);
 
@@ -239,21 +390,21 @@ public class OsmProcessor {
                     Matcher kvm = kvPattern.matcher(input);
                     Matcher mm = memberPattern.matcher(input);
 
-                    if(idm.find()) {
+                    if (idm.find()) {
                         long id = Long.valueOf(idm.group(1));
                         JsonObject relation = object().put("id", id).get();
                         while (kvm.find()) {
                             String name = kvm.group(1);
-                            if(!BLACKLISTED_TAGS.contains(name)) {
+                            if (!BLACKLISTED_TAGS.contains(name)) {
                                 relation.put(name, kvm.group(2));
                             }
                         }
 
                         JsonArray members = array();
-                        while(mm.find()) {
-                            String type=mm.group(1);
-                            Long ref=Long.valueOf(mm.group(2));
-                            String role=mm.group(3);
+                        while (mm.find()) {
+                            String type = mm.group(1);
+                            Long ref = Long.valueOf(mm.group(2));
+                            String role = mm.group(3);
                             if ("way".equalsIgnoreCase(type)) {
                                 JsonObject way = wayKv.get(ref);
                                 if (way != null) {
@@ -276,6 +427,7 @@ public class OsmProcessor {
                                     nodeKv.put(ref, clone);
                                     node.put("type", type);
                                     node.put("role", role);
+                                    expandPoint(node);
                                     members.add(node);
                                 } else {
                                     relation.put("incomplete", true);
@@ -291,7 +443,8 @@ public class OsmProcessor {
             };
 
             long count = 0;
-            try(ConcurrentProcessingIterable<String, Boolean> concurrentProcessingIterable = Iterables.processConcurrently(osmIterable, processor, 1000, 8, 100)) {
+            try (ConcurrentProcessingIterable<String, Boolean> concurrentProcessingIterable = Iterables.processConcurrently(osmIterable, processor, 1000, 8,
+                    100)) {
                 for (@SuppressWarnings("unused")
                 Boolean ok : concurrentProcessingIterable) {
                     // do nothing
@@ -313,6 +466,10 @@ public class OsmProcessor {
 
     public static BufferedWriter gzipFileWriter(String file) throws IOException {
         return new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(new FileOutputStream(file)), Charset.forName("utf-8")));
+    }
+
+    public static BufferedReader gzipFileReader(File file) throws IOException {
+        return new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(file)), Charset.forName("utf-8")));
     }
 
 }
