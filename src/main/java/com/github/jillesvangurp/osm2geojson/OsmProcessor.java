@@ -37,6 +37,7 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -55,7 +56,10 @@ import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
 import com.github.jsonj.tools.JsonParser;
+import com.github.jsonj.tools.TypeSupport;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.jillesvangurp.geo.GeoGeometry;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.Iterables;
 import com.jillesvangurp.iterables.LineIterable;
@@ -66,8 +70,8 @@ public class OsmProcessor {
     private static final String WAYS_GZ = "ways.gz";
     private static final String NODES_GZ = "nodes.gz";
     // these tag names are either depended on by this class or noisy; so simply drop them if we encounter them
-    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id", "latitude", "longitude", "location",
-            "members", "ways", "relations", "l"));
+    private static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id","type", "latitude", "longitude", "location",
+            "members", "ways", "relations", "l","geometry","role"));
 
     private static final JsonParser parser = new JsonParser();
 
@@ -98,14 +102,6 @@ public class OsmProcessor {
         System.out.println("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
     }
 
-//    private static void filterWays() throws IOException {
-//        try (LineIterable it = LineIterable.openGzipFile(WAYS_GZ)) {
-//            for (String line : it) {
-//
-//            }
-//        }
-//    }
-
     private static void fixGeometryInRelations(String relationsGz) throws IOException {
         try (BufferedWriter out = gzipFileWriter("relation-fixed.gz")) {
             try (LineIterable it = LineIterable.openGzipFile(RELATIONS_GZ)) {
@@ -133,96 +129,132 @@ public class OsmProcessor {
     }
 
     static JsonArray calculateMultiPolygonForRelation(JsonObject relation) {
+        // only call on multipolygon relations
         JsonArray members = relation.getArray("members");
         JsonArray multiPolygon = array();
-        JsonArray currentPolygon = null;
-        JsonArray currentSegment = null;
-        String lastRole = null;
 
-        Iterator<JsonElement> mit = members.iterator();
-        while (mit.hasNext()) {
-            JsonObject member = mit.next().asObject();
-            String memberType = member.getString("type");
-            String memberRole = member.getString("role");
-            JsonObject geometry = member.getObject("geometry");
-            String geometryType = geometry.getString("type");
-            JsonArray coordinates = geometry.getArray("coordinates");
-            if ("way".equals(memberType)) {
-                if ("Polygon".equalsIgnoreCase(geometryType)) {
-                    if ("outer".equalsIgnoreCase(memberRole)) {
-                        // it's a new polygon
-                        if (currentPolygon != null) {
-                            multiPolygon.add(currentPolygon);
-                        }
-                        currentPolygon = array();
-                        // coordinates is a 3d array with one 2d element for a polygon way
-                        currentPolygon.add(coordinates.get(0));
+        Map<String,JsonObject> lineStrings = Maps.newHashMap();
 
-                    } else if ("inner".equalsIgnoreCase(memberRole)) {
-                        if (currentPolygon == null) {
-                            throw new IllegalStateException("unexpected inner polygon");
-                        } else {
-                            currentPolygon.add(coordinates.get(0));
-                        }
-                    } else {
-                        throw new IllegalStateException("unexpected role (polygon) " + memberRole);
-                    }
-                } else if ("LineString".equalsIgnoreCase(geometryType)) {
-                    JsonArray newSegment = coordinates;
-                    if (currentPolygon == null) {
-                        // first
-                        currentPolygon = array();
-                        currentSegment = newSegment;
-                    } else if (currentSegment == null) {
-                        currentSegment = newSegment;
-                    } else {
-                        if (lastRole.equalsIgnoreCase(memberRole)) {
-                            // same segment
-                            JsonArray lastCoordinateOfNewSegment = newSegment.get(newSegment.size() - 1).asArray();
-                            JsonArray firstCoordinateOfLastSegment = currentSegment.get(0).asArray();
-                            currentSegment.addAll(newSegment);
-                            if (firstCoordinateOfLastSegment.equals(lastCoordinateOfNewSegment)) {
-                                // close the polygon
-                                currentPolygon.add(currentSegment);
-                                currentSegment = null;
-                            }
-                        } else {
-                            if ("outer".equalsIgnoreCase(memberRole)) {
-                                // a new polygon
-                                multiPolygon.add(currentPolygon);
-                                currentPolygon = array();
-                                currentSegment = newSegment;
-                            } else if ("inner".equalsIgnoreCase(memberRole)) {
-                                // first segment of a 'hole'
-                                currentSegment = newSegment;
-                            } else {
-                                throw new IllegalStateException("unexpected role (multiline) " + memberRole);
-                            }
-                        }
-                    }
-                } else {
-                    throw new IllegalStateException("unexpected geometry type " + geometryType);
-                }
-                lastRole = memberRole;
-                // FIXME tags
+        int nrOfTags=0;
+        for(Entry<String, JsonElement> e: relation.entrySet()) {
+            if(!BLACKLISTED_TAGS.contains(e.getKey())) {
+                nrOfTags++;
+            }
+
+        }
+
+        // collect the LineStrings that need to be connected
+        Iterator<JsonElement> iterator = members.iterator();
+        while (iterator.hasNext()) {
+            JsonObject member = iterator.next().asObject();
+
+            String role = member.getString("role");
+            // copy outer tags to relation if missing
+            if(nrOfTags == 0 && "outer".equalsIgnoreCase(role)) {
                 for(Entry<String, JsonElement> e: member.entrySet()) {
                     String key = e.getKey();
-                    if(!relation.containsKey(key) && ! BLACKLISTED_TAGS.contains(key)) {
+                    if(!BLACKLISTED_TAGS.contains(key) && !relation.containsKey(key)) {
                         relation.put(key, e.getValue());
                     }
                 }
+            }
 
-                // remove ways that have been added to the polygon
-                mit.remove();
 
-            } else {
-                // skip node members
+            JsonObject geometry = member.getObject("geometry");
+            String geometryType = geometry.getString("type");
+            if("LineString".equalsIgnoreCase(geometryType)) {
+                JsonArray coordinates = geometry.getArray("coordinates");
+                String first = coordinates.first().toString();
+                lineStrings.put(first, member);
+                iterator.remove();
             }
         }
-        if(currentPolygon != null && currentPolygon.size() > 0) {
-            multiPolygon.add(currentPolygon);
+
+        Set<JsonObject> connectedSegments = Sets.newHashSet();
+        // connect the segments
+        while (lineStrings.size() > 0) {
+            // take the first segment
+            Entry<String, JsonObject> entry = lineStrings.entrySet().iterator().next();
+            JsonObject member = entry.getValue();
+            // remove it from the map
+            String first = entry.getKey();
+            lineStrings.remove(first);
+            JsonObject geometry = member.getObject("geometry");
+            JsonArray coordinates = geometry.getArray("coordinates");
+            String last = coordinates.last().toString();
+            if(first.equals(last)) {
+                // already a polygon
+            } else {
+                JsonObject segment;
+                // find the segments that can be connected
+                while((segment = lineStrings.get(last)) != null) {
+                    JsonArray segmentCoordinates = segment.getArray("geometry","coordinates");
+                    segmentCoordinates.remove(0);
+                    coordinates.addAll(segmentCoordinates);
+                    // remove the segment from the map
+                    lineStrings.remove(last);
+                    last=coordinates.last().toString();
+                }
+            }
+            connectedSegments.add(member);
         }
+
+        // add the connected segments as polygon way members
+        for (JsonObject member: connectedSegments) {
+            JsonObject geometry = member.getObject("geometry");
+            JsonArray coordinates = geometry.getArray("coordinates");
+            geometry.put("type", "Polygon");
+            // polygons are 3d arrays
+            JsonArray newCoordinates = array();
+            newCoordinates.add(coordinates);
+            JsonArray firstPoly = newCoordinates.first().asArray();
+            JsonElement firstCoordinate = firstPoly.first();
+            JsonElement lastCoordinate = firstPoly.last();
+            if(!firstCoordinate.equals(lastCoordinate)) {
+                // close the polygon
+                firstPoly.add(firstCoordinate);
+            }
+            geometry.put("coordinates", newCoordinates);
+            // add the member
+            members.add(member);
+        }
+
+        // add all the outer polygons to the multipolygon
+        Iterator<JsonElement> it = members.iterator();
+        while (it.hasNext()) {
+            JsonObject member = it.next().asObject();
+            String role = member.getString("role");
+            if("outer".equals(role)) {
+                multiPolygon.add(member.getArray("geometry","coordinates"));
+                it.remove();
+            }
+        }
+        // now add the inner polygons to the right outerpolygon in the multipolygon
+        it = members.iterator();
+        while (it.hasNext()) {
+            JsonObject member = it.next().asObject();
+            String role = member.getString("role");
+            if("inner".equals(role)) {
+                JsonArray coordinates = member.getArray("geometry","coordinates");
+                findOuterPolygon(multiPolygon,coordinates);
+                it.remove();
+            }
+        }
+
         return multiPolygon;
+    }
+
+
+    private static void findOuterPolygon(JsonArray multiPolygon, JsonArray inner) {
+        for(JsonElement p: multiPolygon) {
+            JsonArray polygon = p.asArray();
+            JsonArray outer = polygon.first().asArray();
+            JsonElement innerPolygon = inner.first();
+            double[] polygonCenter = GeoGeometry.getPolygonCenter(TypeSupport.convertTo2DDoubleArray(innerPolygon.asArray()));
+            if(GeoGeometry.polygonContains(polygonCenter, TypeSupport.convertTo2DDoubleArray(outer))) {
+                polygon.add(innerPolygon);
+            }
+        }
     }
 
     private static void expandPoint(JsonObject o) {
