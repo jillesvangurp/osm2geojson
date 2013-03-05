@@ -26,6 +26,10 @@ import java.util.NoSuchElementException;
 
 import com.jillesvangurp.iterables.LineIterable;
 
+/**
+ * Iterates over the open street map xml and yields one parseable node, way, or relation xml string blob each time next
+ * is called. Using this class, you can use a simple for loop to loop over the xml.
+ */
 public final class OpenStreetMapBlobIterable implements Iterable<String> {
 
     private final LineIterable lineIterable;
@@ -109,8 +113,9 @@ public final class OpenStreetMapBlobIterable implements Iterable<String> {
 
     static boolean fastEndsWith(CharSequence buf, String postFix) {
         // String.endsWith is very slow and creating extra String objects
-        // every time we want to check the StringBuilder content is
-        // inefficient
+        // every time we want to check the CharSequence content is
+        // inefficient. This implementation simply inspects the end of the
+        // CharSequence one character at the time.
         if (buf.length() < postFix.length()) {
             return false;
         } else {
