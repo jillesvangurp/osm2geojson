@@ -87,16 +87,15 @@ public class OsmProcessor {
             try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
 
-                    // parse the xml into json and inline any nodes into ways and ways+nodes into relations
+                    LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
                     processOsm(nodeKv, wayKv, relationKv, osmXml);
 
 
+                    LOG.info("export json files");
                     exportGeoJson(nodeKv, wayKv, relationKv);
 
-                    // post process the exported relations to reconstruct proper geojson multipolygons out of the inner and outer way segments
+                    LOG.info("post process the exported relations to reconstruct proper geojson multipolygons out of the inner and outer way segments");
                     fixGeometryInRelations(RELATIONS_GZ);
-
-                    // filterWays();
                 }
                 LOG.info("closed relationKv");
             }
@@ -112,16 +111,27 @@ public class OsmProcessor {
         try (LineIterable lineIterable = new LineIterable(bzip2Reader(osmXml));) {
             OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
-            Processor<String, Boolean> processor = new OsmBlobProcessor(nodeKv, relationKv, wayKv);
+            Processor<String, String> processor = new OsmBlobProcessor(nodeKv, relationKv, wayKv);
 
             long count = 0;
+            long nodes = 0;
+            long ways = 0;
+            long relations = 0;
             // process the blobs concurrently. You may have to tweak the parameters depending on how many cores & memory you have
-            try (ConcurrentProcessingIterable<String, Boolean> concurrentProcessingIterable = Iterables.processConcurrently(osmIterable, processor, 1000, 8,
+            try (ConcurrentProcessingIterable<String, String> concurrentProcessingIterable = Iterables.processConcurrently(osmIterable, processor, 1000, 8,
                     100)) {
-                for (@SuppressWarnings("unused") Boolean ok : concurrentProcessingIterable) {
-                    // do nothing
+                for (String blobType : concurrentProcessingIterable) {
+
+
                     if (count % 10000 == 0) {
-                        LOG.info("processed " + count);
+                        LOG.info("processed " + count + " blobs: " + nodes + " nodes, " + ways + " ways, " + relations + " relations");
+                    }
+                    if("node".equals(blobType)) {
+                        nodes++;
+                    } else if("way".equals(blobType)) {
+                        ways++;
+                    } else if("relation".equals(blobType)) {
+                        relations++;
                     }
                     count++;
                 }

@@ -26,7 +26,7 @@ import com.jillesvangurp.iterables.Processor;
  *
  * The processor returns true if it was successful and false otherwise.
  */
-public class OsmBlobProcessor implements Processor<String, Boolean> {
+public class OsmBlobProcessor implements Processor<String, String> {
     private static final Logger LOG = LoggerFactory.getLogger(OsmBlobProcessor.class);
 
     final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
@@ -48,24 +48,28 @@ public class OsmBlobProcessor implements Processor<String, Boolean> {
     }
 
     @Override
-    public Boolean process(String input) {
+    public String process(String input) {
         try {
+            String blobType;
             if (input.startsWith("<node")) {
                 processNode(nodeKv, input);
+                blobType="node";
             } else if (input.startsWith("<way")) {
                 processWay(nodeKv, wayKv, input);
+                blobType="way";
             } else if (input.startsWith("<relation")) {
                 processRelation(nodeKv, wayKv, relationKv, input);
+                blobType="relation";
             } else {
                 throw new IllegalStateException("unexpected node type " + input);
             }
-            return true;
+            return blobType;
         } catch (SAXException e) {
             e.printStackTrace();
-            return false;
+            return "error";
         } catch (XPathExpressionException e) {
             e.printStackTrace();
-            return false;
+            return "error";
         }
     }
 
