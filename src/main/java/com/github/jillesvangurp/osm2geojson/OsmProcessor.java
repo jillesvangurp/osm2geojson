@@ -82,10 +82,10 @@ public class OsmProcessor {
         }
         long now = System.currentTimeMillis();
 
-        JsonObjectCodec codec = new JsonObjectCodec(new JsonParser());
-        try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
-            try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
-                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
+        JsonObjectCodec codec = new JsonObjectCodec(new JsonParser(),100000);
+        try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 200)) {
+            try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 200)) {
+                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 100)) {
 
                     LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
                     processOsm(nodeKv, wayKv, relationKv, osmXml);

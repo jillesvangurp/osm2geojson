@@ -28,8 +28,10 @@ import com.github.jsonj.tools.JsonParser;
 final class JsonObjectCodec implements PersistentCachingMapCodec<Long, JsonObject> {
     private final JsonParser jsonParser;
 
-    public JsonObjectCodec(JsonParser jsonParser) {
+    final int bucketSize;
+    public JsonObjectCodec(JsonParser jsonParser, int bucketSize) {
         this.jsonParser = jsonParser;
+        this.bucketSize = bucketSize;
     }
 
     @Override
@@ -44,7 +46,7 @@ final class JsonObjectCodec implements PersistentCachingMapCodec<Long, JsonObjec
 
     @Override
     public long bucketId(Long key) {
-        return key/10000;
+        return key/bucketSize;
     }
 
     @Override
