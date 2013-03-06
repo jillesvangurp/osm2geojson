@@ -13,9 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
+import com.github.jsonj.tools.TypeSupport;
+import com.jillesvangurp.geo.GeoGeometry;
+import com.jillesvangurp.geokv.GeoKV;
 import com.jillesvangurp.iterables.Processor;
 
 /**
@@ -36,15 +38,15 @@ public class OsmBlobProcessor implements Processor<String, String> {
     final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
     final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
 
-    private final PersistentCachingMap<Long, JsonObject> nodeKv;
-    private final PersistentCachingMap<Long, JsonObject> relationKv;
-    private final PersistentCachingMap<Long, JsonObject> wayKv;
+    private final GeoKV<JsonObject> nodeGeoKv;
+    private final GeoKV<JsonObject> relationGeoKv;
+    private final GeoKV<JsonObject> wayGeoKv;
 
-    OsmBlobProcessor(PersistentCachingMap<Long, JsonObject> nodeKv,
-            PersistentCachingMap<Long, JsonObject> relationKv, PersistentCachingMap<Long, JsonObject> wayKv) {
-        this.nodeKv = nodeKv;
-        this.relationKv = relationKv;
-        this.wayKv = wayKv;
+    OsmBlobProcessor(GeoKV<JsonObject> nodeGeoKV,
+            GeoKV<JsonObject> relationGeoKV, GeoKV<JsonObject> wayGeoKV) {
+        this.nodeGeoKv = nodeGeoKV;
+        this.relationGeoKv = relationGeoKV;
+        this.wayGeoKv = wayGeoKV;
     }
 
     @Override
@@ -52,13 +54,13 @@ public class OsmBlobProcessor implements Processor<String, String> {
         try {
             String blobType;
             if (input.startsWith("<node")) {
-                processNode(nodeKv, input);
+                processNode(input);
                 blobType="node";
             } else if (input.startsWith("<way")) {
-                processWay(nodeKv, wayKv, input);
+                processWay(input);
                 blobType="way";
             } else if (input.startsWith("<relation")) {
-                processRelation(nodeKv, wayKv, relationKv, input);
+                processRelation(input);
                 blobType="relation";
             } else {
                 throw new IllegalStateException("unexpected node type " + input);
@@ -73,7 +75,7 @@ public class OsmBlobProcessor implements Processor<String, String> {
         }
     }
 
-    private void processNode(final PersistentCachingMap<Long, JsonObject> nodeKv, String input) throws XPathExpressionException, SAXException {
+    private void processNode(String input) throws XPathExpressionException, SAXException {
         Matcher idm = idPattern.matcher(input);
         Matcher latm = latPattern.matcher(input);
         Matcher lonm = lonPattern.matcher(input);
@@ -91,7 +93,7 @@ public class OsmBlobProcessor implements Processor<String, String> {
                         node.put(name, kvm.group(2));
                     }
                 }
-                nodeKv.put(id, node);
+                nodeGeoKv.put(latitude,longitude,""+id, node);
             } else {
                 LOG.warn("no lat/lon for " + id);
             }
@@ -101,7 +103,7 @@ public class OsmBlobProcessor implements Processor<String, String> {
         }
     }
 
-    private void processWay(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv, String input)
+    private void processWay(String input)
             throws XPathExpressionException, SAXException {
 
         Matcher idm = idPattern.matcher(input);
@@ -120,14 +122,15 @@ public class OsmBlobProcessor implements Processor<String, String> {
             JsonArray coordinates = array();
             while (ndm.find()) {
                 Long ref = Long.valueOf(ndm.group(1));
-                JsonObject node = nodeKv.get(ref);
+                JsonObject node = nodeGeoKv.get(""+ref);
                 if (node != null) {
                     JsonObject clone = node.deepClone();
                     clone.getOrCreateArray("ways").add(primitive(id));
                     // store a deep clone with a ref to the relation
-                    nodeKv.put(ref, clone);
+                    JsonArray coordinate = node.getArray("l");
+                    nodeGeoKv.put(coordinate.get(0).asPrimitive().asDouble(),coordinate.get(1).asPrimitive().asDouble(),""+ref, clone);
 
-                    coordinates.add(node.getArray("l"));
+                    coordinates.add(coordinate);
                 } else {
                     way.put("incomplete", true);
                 }
@@ -142,13 +145,17 @@ public class OsmBlobProcessor implements Processor<String, String> {
                 way.put("geometry", object().put("type", "LineString").put("coordinates", coordinates).get());
             }
 
-            wayKv.put(id, way);
-
+            if(coordinates.size() > 0) {
+                double[] centroid = GeoGeometry.getPolygonCenter(TypeSupport.convertTo2DDoubleArray(coordinates));
+                way.put("centroid", array(centroid[0],centroid[1]));
+                wayGeoKv.put(centroid[0],centroid[1],""+id, way);
+            } else {
+                throw new IllegalStateException("way with out coordinates " + input);
+            }
         }
     }
 
-    private void processRelation(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
-            final PersistentCachingMap<Long, JsonObject> relationKv, String input) throws XPathExpressionException, SAXException {
+    private void processRelation(String input) throws XPathExpressionException, SAXException {
         Matcher idm = idPattern.matcher(input);
         Matcher kvm = kvPattern.matcher(input);
         Matcher mm = memberPattern.matcher(input);
@@ -164,17 +171,20 @@ public class OsmBlobProcessor implements Processor<String, String> {
             }
 
             JsonArray members = array();
+            JsonArray centroids=array();
             while (mm.find()) {
                 String type = mm.group(1);
                 Long ref = Long.valueOf(mm.group(2));
                 String role = mm.group(3);
                 if ("way".equalsIgnoreCase(type)) {
-                    JsonObject way = wayKv.get(ref);
+                    JsonObject way = wayGeoKv.get(""+ref);
                     if (way != null) {
                         JsonObject clone = way.deepClone();
                         clone.getOrCreateArray("relations").add(primitive(id));
                         // store a deep clone with a ref to the relation
-                        wayKv.put(ref, clone);
+                        JsonArray wayCentroid = clone.getArray("centroid");
+                        centroids.add(wayCentroid);
+                        wayGeoKv.put(wayCentroid.get(0).asPrimitive().asDouble(),wayCentroid.get(1).asPrimitive().asDouble(),""+ref, clone);
                         way.put("type", type);
                         way.put("role", role);
                         members.add(way);
@@ -182,12 +192,14 @@ public class OsmBlobProcessor implements Processor<String, String> {
                         relation.put("incomplete", true);
                     }
                 } else if ("node".equalsIgnoreCase(type)) {
-                    JsonObject node = nodeKv.get(ref);
+                    JsonObject node = nodeGeoKv.get(""+ref);
                     if (node != null) {
                         JsonObject clone = node.deepClone();
                         clone.getOrCreateArray("relations").add(primitive(id));
                         // store a deep clone with a ref to the relation
-                        nodeKv.put(ref, clone);
+                        JsonArray coordinate = clone.getArray("l");
+                        centroids.add(coordinate);
+                        nodeGeoKv.put(coordinate.get(0).asPrimitive().asDouble(),coordinate.get(1).asPrimitive().asDouble(),""+ref, clone);
                         node.put("type", type);
                         node.put("role", role);
                         OsmProcessor.expandPoint(node);
@@ -200,7 +212,9 @@ public class OsmBlobProcessor implements Processor<String, String> {
             if (members.size() > 0) {
                 relation.put("members", members);
             }
-            relationKv.put(id, relation);
+            double[] centroid = GeoGeometry.getPolygonCenter(TypeSupport.convertTo2DDoubleArray(centroids));
+            relation.put("centroid", array(centroid[0],centroid[1]));
+            relationGeoKv.put(centroid[0],centroid[1],""+id, relation);
         }
     }
 }

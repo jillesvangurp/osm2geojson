@@ -47,7 +47,6 @@ import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
@@ -56,6 +55,8 @@ import com.github.jsonj.tools.TypeSupport;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.jillesvangurp.geo.GeoGeometry;
+import com.jillesvangurp.geokv.GeoKV;
+import com.jillesvangurp.geokv.ValueProcessor;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.Iterables;
 import com.jillesvangurp.iterables.LineIterable;
@@ -68,7 +69,7 @@ public class OsmProcessor {
     private static final String WAYS_GZ = "ways.gz";
     private static final String NODES_GZ = "nodes.gz";
     // these tag names are either depended on by this class or noisy; so simply drop them if we encounter them
-    static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id","type", "latitude", "longitude", "location",
+    static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id", "latitude", "longitude", "location",
             "members", "ways", "relations", "l","geometry","role"));
 
     private static final JsonParser parser = new JsonParser();
@@ -82,17 +83,29 @@ public class OsmProcessor {
         }
         long now = System.currentTimeMillis();
 
-        JsonObjectCodec codec = new JsonObjectCodec(new JsonParser());
-        try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 1000)) {
-            try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 1000)) {
-                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
+
+        ValueProcessor<JsonObject> geokvprocessor = new ValueProcessor<JsonObject>() {
+
+            @Override
+            public String serialize(JsonObject v) {
+                return v.toString();
+            }
+
+            @Override
+            public JsonObject parse(String blob) {
+                return parser.parse(blob).asObject();
+            }
+        };
+
+        try(GeoKV<JsonObject> nodeGeoKV = new GeoKV<>("osmgeokv-node", 300, 5, geokvprocessor )) {
+            try(GeoKV<JsonObject> wayGeoKV = new GeoKV<>("osmgeokv-way", 150, 5, geokvprocessor )) {
+                try(GeoKV<JsonObject> relationGeoKV = new GeoKV<>("osmgeokv-relation", 50, 5, geokvprocessor )) {
 
                     LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
-                    processOsm(nodeKv, wayKv, relationKv, osmXml);
-
+                    processOsm(nodeGeoKV, wayGeoKV, relationGeoKV, osmXml);
 
                     LOG.info("export json files");
-                    exportGeoJson(nodeKv, wayKv, relationKv);
+                    exportGeoJson(nodeGeoKV, wayGeoKV, relationGeoKV);
 
                     LOG.info("post process the exported relations to reconstruct proper geojson multipolygons out of the inner and outer way segments");
                     fixGeometryInRelations(RELATIONS_GZ);
@@ -105,13 +118,13 @@ public class OsmProcessor {
         LOG.info("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
     }
 
-    private static void processOsm(final PersistentCachingMap<Long, JsonObject> nodeKv, final PersistentCachingMap<Long, JsonObject> wayKv,
-            final PersistentCachingMap<Long, JsonObject> relationKv, String osmXml) {
+    private static void processOsm(final GeoKV<JsonObject> nodeGeoKV, final GeoKV<JsonObject> wayGeoKV,
+            final GeoKV<JsonObject> relationGeoKV, String osmXml) {
 
         try (LineIterable lineIterable = new LineIterable(bzip2Reader(osmXml));) {
             OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
-            Processor<String, String> processor = new OsmBlobProcessor(nodeKv, relationKv, wayKv);
+            Processor<String, String> processor = new OsmBlobProcessor(nodeGeoKV, relationGeoKV, wayGeoKV);
 
             long count = 0;
             long nodes = 0;
@@ -135,6 +148,7 @@ public class OsmProcessor {
                     }
                     count++;
                 }
+                LOG.info("done processing " + count + " blobs: " + nodes + " nodes, " + ways + " ways, " + relations + " relations");
             }
             LOG.info("done");
         } catch (IOException e) {
@@ -142,18 +156,21 @@ public class OsmProcessor {
         }
     }
 
-    private static void exportGeoJson(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
-            PersistentCachingMap<Long, JsonObject> relationKv) throws IOException {
-        exportMap(nodeKv, new Filter() {
+    private static void exportGeoJson(GeoKV<JsonObject> nodeGeoKV, GeoKV<JsonObject> wayGeoKV,
+            GeoKV<JsonObject> relationGeoKV) throws IOException {
+        exportMap(nodeGeoKV, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
+                if(o==null) {
+                    return false;
+                }
                 expandPoint(o);
                 return StringUtils.isNotEmpty(o.getString("name"));
             }
         }, NODES_GZ);
         LOG.info("Exported nodes");
-        exportMap(wayKv, new Filter() {
+        exportMap(wayGeoKV, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
@@ -161,7 +178,7 @@ public class OsmProcessor {
             }
         }, WAYS_GZ);
         LOG.info("Exported ways");
-        exportMap(relationKv, new Filter() {
+        exportMap(relationGeoKV, new Filter() {
 
             @Override
             public boolean ok(JsonObject o) {
@@ -175,10 +192,9 @@ public class OsmProcessor {
         boolean ok(JsonObject o);
     }
 
-    private static void exportMap(PersistentCachingMap<Long, JsonObject> map, Filter f, String file) throws IOException {
+    private static void exportMap(GeoKV<JsonObject> nodeGeoKV, Filter f, String file) throws IOException {
         try (BufferedWriter out = gzipFileWriter(file)) {
-            for (Entry<Long, JsonObject> entry : map) {
-                JsonObject object = entry.getValue();
+            for (JsonObject object : nodeGeoKV) {
                 if (f.ok(object)) {
                     out.write(object.toString());
                     out.newLine();
