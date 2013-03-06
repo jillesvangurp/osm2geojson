@@ -68,7 +68,7 @@ public class OsmProcessor {
     private static final String WAYS_GZ = "ways.gz";
     private static final String NODES_GZ = "nodes.gz";
     // these tag names are either depended on by this class or noisy; so simply drop them if we encounter them
-    static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id","type", "latitude", "longitude", "location",
+    static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id", "latitude", "longitude", "location",
             "members", "ways", "relations", "l","geometry","role"));
 
     private static final JsonParser parser = new JsonParser();
