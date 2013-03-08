@@ -88,19 +88,20 @@ public class OsmProcessor {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 100)) {
 
                     LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
-                    processOsm(nodeKv, wayKv, relationKv, osmXml);
-
+//                    processOsm(nodeKv, wayKv, relationKv, osmXml);
 
                     LOG.info("export json files");
-                    exportGeoJson(nodeKv, wayKv, relationKv);
+                    exportNodes(nodeKv);
+                    exportWays(wayKv);
+                    exportRelations(relationKv);
 
-                    LOG.info("post process the exported relations to reconstruct proper geojson multipolygons out of the inner and outer way segments");
-                    fixGeometryInRelations(RELATIONS_GZ);
+
                 }
                 LOG.info("closed relationKv");
             }
             LOG.info("closed wayKv");
         }
+
         LOG.info("closed nodeKv");
         LOG.info("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
     }
@@ -121,8 +122,6 @@ public class OsmProcessor {
             try (ConcurrentProcessingIterable<String, String> concurrentProcessingIterable = Iterables.processConcurrently(osmIterable, processor, 1000, 8,
                     100)) {
                 for (String blobType : concurrentProcessingIterable) {
-
-
                     if (count % 10000 == 0) {
                         LOG.info("processed " + count + " blobs: " + nodes + " nodes, " + ways + " ways, " + relations + " relations");
                     }
@@ -142,48 +141,263 @@ public class OsmProcessor {
         }
     }
 
-    private static void exportGeoJson(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv,
-            PersistentCachingMap<Long, JsonObject> relationKv) throws IOException {
-        exportMap(nodeKv, new Filter() {
+    private static void exportRelations(PersistentCachingMap<Long, JsonObject> relationKv) throws IOException {
+        int notcategorized=0;
+        int notamultipoly=0;
+        int incomplete=0;
+        int noname=0;
+        try (BufferedWriter out = gzipFileWriter(RELATIONS_GZ)) {
+            for (Entry<Long, JsonObject> entry : relationKv) {
+                JsonObject object = entry.getValue();
+                if (object.get("incomplete") == null) {
 
-            @Override
-            public boolean ok(JsonObject o) {
-                expandPoint(o);
-                return StringUtils.isNotEmpty(o.getString("name"));
-            }
-        }, NODES_GZ);
-        LOG.info("Exported nodes");
-        exportMap(wayKv, new Filter() {
+                    JsonObject poi = object()
+                            .put("id", object.getString("id"))
+                            .put("type", "way")
+                            .put("source", "osm")
+                            .get();
+                    if ("multipolygon".equalsIgnoreCase(object.getString("type"))) {
+                        JsonArray multiPolygon = calculateMultiPolygonForRelation(object);
+                        JsonObject geometry = object().put("type", "MultiPolygon").put("coordinates", multiPolygon).get();
+                        String name = object.getString("name");
+                        JsonObject categories = relationTagsToCategories(object);
+                        if (categories.getArray("osm").size() > 0) {
+                            if (object.getArray("members").size() == 0) {
+                                object.remove("members");
+                            }
+                            if(StringUtils.isNotEmpty(name)) {
+                                poi.put("name", name);
+                                poi.put("categories", categories);
+                                poi.put("geometry", geometry);
+                                out.write(poi.toString());
+                                out.newLine();
+                            } else {
 
-            @Override
-            public boolean ok(JsonObject o) {
-                return o.get("incomplete") == null && StringUtils.isNotEmpty(o.getString("name")) && o.get("relations") == null;
+                                noname++;
+                            }
+                        } else {
+                            notcategorized++;
+//                            LOG.info("cannot categorize " + object.toString());
+                        }
+                    } else {
+//                        LOG.info("not a multi polygon " + object.toString());
+                        notamultipoly++;
+                    }
+                } else {
+                    incomplete++;
+                }
             }
-        }, WAYS_GZ);
-        LOG.info("Exported ways");
-        exportMap(relationKv, new Filter() {
-
-            @Override
-            public boolean ok(JsonObject o) {
-                return o.get("incomplete") == null;
-            }
-        }, RELATIONS_GZ);
+        }
+        LOG.info("failed to categorize " + notcategorized);
+        LOG.info("not a multipoly " + notamultipoly);
+        LOG.info("noname " + noname);
+        LOG.info("incomplete " + incomplete);
         LOG.info("Exported relations");
     }
 
-    interface Filter {
-        boolean ok(JsonObject o);
+    private static JsonObject relationTagsToCategories(JsonObject object) {
+        JsonObject categories = new JsonObject();
+        JsonArray osmCats = array();
+        categories.put("osm", osmCats);
+
+        if(object.containsKey("admin_level")) {
+            osmCats.add("admin-level-"+object.getString("admin_level"));
+        }
+
+        if(osmCats.size()==0) {
+            return wayTagsToCategories(object);
+        } else {
+            return categories;
+        }
     }
 
-    private static void exportMap(PersistentCachingMap<Long, JsonObject> map, Filter f, String file) throws IOException {
-        try (BufferedWriter out = gzipFileWriter(file)) {
-            for (Entry<Long, JsonObject> entry : map) {
+    private static void exportWays(PersistentCachingMap<Long, JsonObject> wayKv) throws IOException {
+        try (BufferedWriter out = gzipFileWriter(WAYS_GZ)) {
+            for (Entry<Long, JsonObject> entry : wayKv) {
                 JsonObject object = entry.getValue();
-                if (f.ok(object)) {
-                    out.write(object.toString());
-                    out.newLine();
+                String name = object.getString("name");
+                if (object.get("incomplete") == null && StringUtils.isNotEmpty(name) && object.get("relations") == null) {
+                    JsonObject geometry=object.getObject("geometry");
+                    JsonObject categories = wayTagsToCategories(object);
+                    if(categories.getArray("osm").size()>0) {
+                        JsonObject poi = object()
+                            .put("id", object.getString("id"))
+                            .put("name", name)
+                            .put("type", "way")
+                            .put("source", "osm")
+                            .put("categories", categories)
+                            .put("geometry", geometry)
+                        .get();
+
+                        out.write(poi.toString());
+                        out.newLine();
+                    } else {
+                        LOG.info("cannot categorize " + object.toString());
+                    }
                 }
             }
+        }
+        LOG.info("Exported ways");
+    }
+
+    private static JsonObject wayTagsToCategories(JsonObject object) {
+        JsonObject categories = new JsonObject();
+        JsonArray osmCats = array();
+        categories.put("osm", osmCats);
+        if(object.containsKey("highway")) {
+            osmCats.add("street");
+        }
+
+        if(object.containsKey("natural")) {
+            osmCats.add(object.getString("natural"));
+        }
+
+        if(object.containsKey("leisure")) {
+            osmCats.add(object.getString("leisure"));
+        }
+        if(object.containsKey("tourism")) {
+            osmCats.add(object.getString("tourism"));
+        }
+
+
+        if(hasPair(object, "building", "yes")) {
+            if(hasPair(object,"amenity", "public_building")) {
+                osmCats.add("public-building");
+            } else {
+                osmCats.add("building");
+            }
+        }
+        if(hasPair(object, "landuse", "cemetery")) {
+            osmCats.add("cemetery");
+        }
+
+        if(hasPair(object, "building", "museum")) {
+            osmCats.add("museum");
+        }
+        if(hasPair(object, "building", "university")) {
+            osmCats.add("university");
+        }
+        if(hasPair(object, "building", "hospital")) {
+            osmCats.add("hospital");
+        }
+        if(osmCats.size() == 0) {
+            return nodeTagsToCategories(object);
+        } else {
+            return categories;
+        }
+    }
+
+    private static void exportNodes(PersistentCachingMap<Long, JsonObject> nodeKv) throws IOException {
+        try (BufferedWriter out = gzipFileWriter(NODES_GZ)) {
+            for (Entry<Long, JsonObject> entry : nodeKv) {
+                JsonObject object = entry.getValue();
+                String name = object.getString("name");
+                if (StringUtils.isNotEmpty(name)) {
+                    JsonArray coordinate = object.getArray("l");
+                    if(coordinate != null) {
+                    } else {
+                        coordinate = object.getArray("geometry","coordinates");
+                    }
+                    JsonObject categories = nodeTagsToCategories(object);
+                    if(categories.getArray("osm").size()>0) {
+                        JsonObject poi = object()
+                            .put("name", name)
+                            .put("id", object.getString("id"))
+                            .put("type", "node")
+                            .put("source", "osm")
+                            .put("categories", categories)
+                            .put("geometry", object()
+                                    .put("type", "Point")
+                                    .put("coordinates", coordinate)
+                            .get())
+                        .get();
+
+                        out.write(poi.toString());
+                        out.newLine();
+                    } else {
+//                        if(!object.toString().contains("openGeoDB:")) {
+//                            LOG.info("cannot categorize " + object.toString());
+//                        }
+                    }
+                }
+            }
+        }
+        LOG.info("Exported nodes");
+    }
+
+    private static JsonObject nodeTagsToCategories(JsonObject object) {
+        JsonObject categories = new JsonObject();
+        JsonArray osmCats = array();
+        categories.put("osm", osmCats);
+
+        if (object.containsKey("amenity")) {
+            osmCats.add(object.get("amenity"));
+        }
+
+        if (object.containsKey("shop")) {
+            osmCats.add(object.get("shop"));
+        }
+
+        if (object.containsKey("tourism")) {
+            osmCats.add(object.get("tourism"));
+        }
+
+
+        if (object.containsKey("highway")) {
+            osmCats.add(object.get("highway"));
+        }
+
+        if (object.containsKey("natural")) {
+            osmCats.add(object.get("natural"));
+        }
+
+        if (object.containsKey("historic")) {
+            osmCats.add("historic-"+object.get("historic"));
+        }
+
+
+        String cuisine = object.getString("cuisine");
+        if (StringUtils.isNotEmpty(cuisine)) {
+            categories.getOrCreateArray("cuisine").add(cuisine);
+        }
+
+        if (hasPair(object, "railway", "tram_stop")) {
+            osmCats.add("tram-stop");
+        }
+
+        if (hasPair(object, "railway", "station")) {
+            osmCats.add("train-station");
+        }
+
+        if (hasPair(object, "railway", "halt")) {
+            // may be some rail way crossings included
+            osmCats.add("train-station");
+        }
+
+        if (hasPair(object, "station", "light_rail")) {
+            osmCats.add("light-rail-station");
+        }
+
+        if (hasPair(object, "public_transport", "stop_position")) {
+            if (hasPair(object, "light_rail", "yes")) {
+                osmCats.add("light-rail-station");
+            } else if(hasPair(object, "bus", "yes")) {
+                osmCats.add("bus-stop");
+            } else if(hasPair(object, "railway", "halt")) {
+                osmCats.add("train-station");
+            }
+        }
+
+        return categories;
+    }
+
+
+    private static boolean hasPair(JsonObject object, String key, String value) {
+        String objectValue = object.getString(key);
+        if(objectValue != null) {
+            return value.equalsIgnoreCase(objectValue);
+        } else {
+            return false;
         }
     }
 
@@ -191,31 +405,6 @@ public class OsmProcessor {
         JsonArray coordinate = o.getArray("l");
         o.put("geometry", object().put("type", "Point").put("coordinates", coordinate).get());
         o.remove("l");
-    }
-
-    private static void fixGeometryInRelations(String relationsGz) throws IOException {
-        try (BufferedWriter out = gzipFileWriter("relation-multipolygons.gz")) {
-            try (LineIterable it = LineIterable.openGzipFile(RELATIONS_GZ)) {
-                for (String line : it) {
-                    JsonObject relation = parser.parse(line).asObject();
-                    String type = relation.getString("type");
-                    // only look at multipolygon
-                    if ("multipolygon".equalsIgnoreCase(type)) {
-                        try {
-                            JsonArray multiPolygon = calculateMultiPolygonForRelation(relation);
-                            relation.put("geometry", object().put("type", "MultiPolygon").put("coordinates", multiPolygon).get());
-                            if(relation.getArray("members").size() == 0) {
-                                relation.remove("members");
-                            }
-                            out.write(relation.toString());
-                            out.newLine();
-                        } catch (Exception e) {
-                            LOG.warn("skipping member: " + e.getMessage() + "\n" + relation.toString());
-                        }
-                    }
-                }
-            }
-        }
     }
 
     static JsonArray calculateMultiPolygonForRelation(JsonObject relation) {
@@ -240,7 +429,7 @@ public class OsmProcessor {
 
             String role = member.getString("role");
             // copy outer tags to relation if missing
-            if(nrOfTags == 0 && "outer".equalsIgnoreCase(role)) {
+            if(nrOfTags == 0) {
                 for(Entry<String, JsonElement> e: member.entrySet()) {
                     String key = e.getKey();
                     if(!BLACKLISTED_TAGS.contains(key) && !relation.containsKey(key)) {
@@ -248,7 +437,6 @@ public class OsmProcessor {
                     }
                 }
             }
-
 
             JsonObject geometry = member.getObject("geometry");
             String geometryType = geometry.getString("type");
@@ -328,8 +516,12 @@ public class OsmProcessor {
             String role = member.getString("role");
             if("inner".equals(role)) {
                 JsonArray coordinates = member.getArray("geometry","coordinates");
-                findOuterPolygon(multiPolygon,coordinates);
-                it.remove();
+                if(!coordinates.first().isArray()) {
+                    LOG.warn("inner polygon is not a polygon " + member.toString() +"\n" + relation.toString());
+                } else {
+                    findOuterPolygon(multiPolygon,coordinates);
+                    it.remove();
+                }
             }
         }
 
