@@ -84,7 +84,7 @@ public class OsmBlobProcessor implements Processor<String, String> {
                 double latitude = Double.valueOf(latm.group(1));
                 double longitude = Double.valueOf(lonm.group(1));
                 // using a more compact notation for points here than the geojson point type. OSM has a billion+ nodes.
-                JsonObject node = object().put("id", id).put("l", array(latitude, longitude)).get();
+                JsonObject node = object().put("id", id).put("l", array(longitude, latitude)).get();
                 while (kvm.find()) {
                     String name = kvm.group(1);
                     if (!OsmProcessor.BLACKLISTED_TAGS.contains(name)) {

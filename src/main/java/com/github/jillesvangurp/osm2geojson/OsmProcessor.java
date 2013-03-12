@@ -51,8 +51,8 @@ import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
+import com.github.jsonj.tools.GeoJsonSupport;
 import com.github.jsonj.tools.JsonParser;
-import com.github.jsonj.tools.TypeSupport;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.jillesvangurp.geo.GeoGeometry;
@@ -88,7 +88,7 @@ public class OsmProcessor {
                 try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 100)) {
 
                     LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
-//                    processOsm(nodeKv, wayKv, relationKv, osmXml);
+                    processOsm(nodeKv, wayKv, relationKv, osmXml);
 
                     LOG.info("export json files");
                     exportNodes(nodeKv);
@@ -533,8 +533,9 @@ public class OsmProcessor {
             JsonArray polygon = p.asArray();
             JsonArray outer = polygon.first().asArray();
             JsonElement innerPolygon = inner.first();
-            double[] polygonCenter = GeoGeometry.getPolygonCenter(TypeSupport.convertTo2DDoubleArray(innerPolygon.asArray()));
-            if(GeoGeometry.polygonContains(polygonCenter, TypeSupport.convertTo2DDoubleArray(outer))) {
+
+            double[] polygonCenter = GeoGeometry.polygonCenter(GeoJsonSupport.fromJsonJLineString(innerPolygon.asArray()));
+            if(GeoGeometry.polygonContains(polygonCenter, GeoJsonSupport.fromJsonJLineString(outer))) {
                 polygon.add(innerPolygon);
             }
         }
