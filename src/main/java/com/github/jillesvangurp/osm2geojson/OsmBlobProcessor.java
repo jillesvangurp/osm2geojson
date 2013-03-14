@@ -199,8 +199,10 @@ public class OsmBlobProcessor implements Processor<String, String> {
             }
             if (members.size() > 0) {
                 relation.put("members", members);
+                relationKv.put(id, relation);
+            } else {
+                LOG.warn("no members identified for " + input);
             }
-            relationKv.put(id, relation);
         }
     }
 }

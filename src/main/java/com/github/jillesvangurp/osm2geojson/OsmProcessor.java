@@ -71,8 +71,6 @@ public class OsmProcessor {
     static final Set<String> BLACKLISTED_TAGS = Sets.newTreeSet(Arrays.asList("created_by", "source", "id", "latitude", "longitude", "location",
             "members", "ways", "relations", "l","geometry","role"));
 
-    private static final JsonParser parser = new JsonParser();
-
     public static void main(String[] args) throws IOException {
         String osmXml;
         if (args.length > 0) {
@@ -82,10 +80,10 @@ public class OsmProcessor {
         }
         long now = System.currentTimeMillis();
 
-        JsonObjectCodec codec = new JsonObjectCodec(new JsonParser(),100000);
-        try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 200)) {
-            try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 200)) {
-                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 100)) {
+        JsonObjectCodec codec = new JsonObjectCodec(new JsonParser(),10000);
+        try (PersistentCachingMap<Long, JsonObject> nodeKv = new PersistentCachingMap<>("osmkv-node", codec, 4000)) {
+            try (PersistentCachingMap<Long, JsonObject> wayKv = new PersistentCachingMap<>("osmkv-way", codec, 2000)) {
+                try (PersistentCachingMap<Long, JsonObject> relationKv = new PersistentCachingMap<>("osmkv-relation", codec, 1000)) {
 
                     LOG.info("parse the xml into json and inline any nodes into ways and ways+nodes into relations. Note: processing ways and relations tends to be slower.");
                     processOsm(nodeKv, wayKv, relationKv, osmXml);
@@ -158,26 +156,28 @@ public class OsmProcessor {
                             .get();
                     if ("multipolygon".equalsIgnoreCase(object.getString("type"))) {
                         JsonArray multiPolygon = calculateMultiPolygonForRelation(object);
-                        JsonObject geometry = object().put("type", "MultiPolygon").put("coordinates", multiPolygon).get();
-                        String name = object.getString("name");
-                        JsonObject categories = relationTagsToCategories(object);
-                        if (categories.getArray("osm").size() > 0) {
-                            if (object.getArray("members").size() == 0) {
-                                object.remove("members");
-                            }
-                            if(StringUtils.isNotEmpty(name)) {
-                                poi.put("name", name);
-                                poi.put("categories", categories);
-                                poi.put("geometry", geometry);
-                                out.write(poi.toString());
-                                out.newLine();
-                            } else {
+                        if(multiPolygon != null) {
+                            JsonObject geometry = object().put("type", "MultiPolygon").put("coordinates", multiPolygon).get();
+                            String name = object.getString("name");
+                            JsonObject categories = relationTagsToCategories(object);
+                            if (categories.getArray("osm").size() > 0) {
+                                if (object.getArray("members").size() == 0) {
+                                    object.remove("members");
+                                }
+                                if(StringUtils.isNotEmpty(name)) {
+                                    poi.put("name", name);
+                                    poi.put("categories", categories);
+                                    poi.put("geometry", geometry);
+                                    out.write(poi.toString());
+                                    out.newLine();
+                                } else {
 
-                                noname++;
+                                    noname++;
+                                }
+                            } else {
+                                notcategorized++;
+    //                            LOG.info("cannot categorize " + object.toString());
                             }
-                        } else {
-                            notcategorized++;
-//                            LOG.info("cannot categorize " + object.toString());
                         }
                     } else {
 //                        LOG.info("not a multi polygon " + object.toString());
@@ -216,7 +216,8 @@ public class OsmProcessor {
             for (Entry<Long, JsonObject> entry : wayKv) {
                 JsonObject object = entry.getValue();
                 String name = object.getString("name");
-                if (object.get("incomplete") == null && StringUtils.isNotEmpty(name) && object.get("relations") == null) {
+
+                if (object.get("incomplete") == null && StringUtils.isNotEmpty(name)) {
                     JsonObject geometry=object.getObject("geometry");
                     JsonObject categories = wayTagsToCategories(object);
                     if(categories.getArray("osm").size()>0) {
@@ -232,7 +233,7 @@ public class OsmProcessor {
                         out.write(poi.toString());
                         out.newLine();
                     } else {
-                        LOG.info("cannot categorize " + object.toString());
+//                        LOG.info("cannot categorize " + object.toString());
                     }
                 }
             }
@@ -410,6 +411,10 @@ public class OsmProcessor {
     static JsonArray calculateMultiPolygonForRelation(JsonObject relation) {
         // only call on multipolygon relations
         JsonArray members = relation.getArray("members");
+        if(members == null) {
+            LOG.warn("relation has no members " + relation);
+            return null;
+        }
         JsonArray multiPolygon = array();
 
         Map<String,JsonObject> lineStrings = Maps.newHashMap();
@@ -427,7 +432,7 @@ public class OsmProcessor {
         while (iterator.hasNext()) {
             JsonObject member = iterator.next().asObject();
 
-            String role = member.getString("role");
+//            String role = member.getString("role");
             // copy outer tags to relation if missing
             if(nrOfTags == 0) {
                 for(Entry<String, JsonElement> e: member.entrySet()) {
