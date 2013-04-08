@@ -93,6 +93,8 @@ public class OsmProcessor {
                     exportWays(wayKv);
                     exportRelations(relationKv);
 
+                    exportNamedPoints(nodeKv,wayKv);
+
 
                 }
                 LOG.info("closed relationKv");
@@ -102,6 +104,45 @@ public class OsmProcessor {
 
         LOG.info("closed nodeKv");
         LOG.info("Exiting after " + (System.currentTimeMillis() - now) + "ms.");
+    }
+
+    private static void exportNamedPoints(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv) throws IOException {
+        try(BufferedWriter bw=gzipFileWriter("areas.gz")) {
+            for(Entry<Long, JsonObject> entry: nodeKv) {
+                JsonObject node = entry.getValue();
+                String serialized = node.toString();
+                if(serialized.contains("addr:")) {
+                    for(Entry<String, JsonElement> ne: node.entrySet()) {
+                        if(ne.getKey().startsWith("addr:city") || ne.getKey().startsWith("addr:village")) {
+                            bw.write(namedPoint(ne.getValue().asString(), node.get("l")));
+                        } else if(ne.getKey().equals("is_in")) {
+                            String[] split = ne.getValue().asString().split(",");
+                            bw.write(namedPoint(split[0], node.get("l")));
+                            if(split.length>3) {
+                                bw.write(namedPoint(split[1], node.get("l")));
+                            }
+                        }
+                    }
+                }
+            }
+            for(Entry<Long, JsonObject> entry: wayKv) {
+                JsonObject node = entry.getValue();
+                for(Entry<String, JsonElement> ne: node.entrySet()) {
+                    if(ne.getKey().equals("is_in")) {
+                        String[] split = ne.getValue().asString().split(",");
+                        bw.write(namedPoint(split[0], node.get("geometry","coordinates")));
+                        if(split.length>3) {
+                            bw.write(namedPoint(split[1], node.get("geometry","coordinates")));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static String namedPoint(String s, JsonElement p) {
+        String line = object().put("n", s.trim()).put("c", p).get().toString() + "\n";
+        return line;
     }
 
     private static void processOsm(final PersistentCachingMap<Long, JsonObject> nodeKv, final PersistentCachingMap<Long, JsonObject> wayKv,
@@ -165,7 +206,7 @@ public class OsmProcessor {
                                     object.remove("members");
                                 }
                                 if(StringUtils.isNotEmpty(name)) {
-                                    poi.put("name", name);
+                                    poi.put("title", name);
                                     poi.put("categories", categories);
                                     poi.put("geometry", geometry);
                                     out.write(poi.toString());
@@ -223,7 +264,7 @@ public class OsmProcessor {
                     if(categories.getArray("osm").size()>0) {
                         JsonObject poi = object()
                             .put("id", object.getString("id"))
-                            .put("name", name)
+                            .put("title", name)
                             .put("type", "way")
                             .put("source", "osm")
                             .put("categories", categories)
@@ -302,7 +343,7 @@ public class OsmProcessor {
                     JsonObject categories = nodeTagsToCategories(object);
                     if(categories.getArray("osm").size()>0) {
                         JsonObject poi = object()
-                            .put("name", name)
+                            .put("title", name)
                             .put("id", object.getString("id"))
                             .put("type", "node")
                             .put("source", "osm")
