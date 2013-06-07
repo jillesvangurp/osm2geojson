@@ -14,10 +14,10 @@ import org.apache.commons.lang.Validate;
  */
 public class MergingIterable<T> implements Iterable<T>{
 
-    private final List<Iterable<T>> iterables;
+    private final List<? extends Iterable<T>> iterables;
     private final Comparator<T> comparator;
 
-    public MergingIterable(List<Iterable<T>> iterables, Comparator<T> comparator) {
+    public MergingIterable(List<? extends Iterable<T>> iterables, Comparator<T> comparator) {
         Validate.isTrue(iterables.size() >= 1, "should have at least one iterable");
         this.iterables = iterables;
         this.comparator = comparator;
@@ -33,7 +33,7 @@ public class MergingIterable<T> implements Iterable<T>{
         }
     }
 
-    private Iterable<T> compose(Iterable<T> it, List<Iterable<T>> iterables) {
+    private Iterable<T> compose(Iterable<T> it, List<? extends Iterable<T>> iterables) {
         if(iterables.size() == 1) {
             return new MergingPairIterable<>(it, iterables.get(0), comparator);
         } else {
