@@ -30,10 +30,10 @@ public class SortingWriterTest {
         String outputFile = new File(tempDir,"out.gz").getAbsolutePath();
         ArrayList<String> written = new ArrayList<>();
         try(SortingWriter sortingWriter = new SortingWriter(tempDir, outputFile, 3)) {
-            for(int i=9;i>=0;i--) {
-                sortingWriter.put("" + i, "-");
+            for(int i=0;i<=1000;i++) {
+                sortingWriter.put("" + i%5, "-");
 
-                written.add(""+i+";-");
+                written.add(""+i%5+";-");
             }
         }
         Collections.sort(written);

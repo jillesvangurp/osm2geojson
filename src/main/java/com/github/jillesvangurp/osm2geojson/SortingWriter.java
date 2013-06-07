@@ -8,10 +8,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.TreeMap;
 
 import org.apache.commons.io.FileUtils;
 
+import com.google.common.collect.TreeMultimap;
 import com.jillesvangurp.iterables.LineIterable;
 
 /**
@@ -24,7 +24,7 @@ public class SortingWriter implements Closeable {
     private int currentBucket = 0;
     private final List<String> bucketFiles = new ArrayList<>();
 
-    TreeMap<String, String> bucket = new TreeMap<>();
+    TreeMultimap<String, String> bucket = TreeMultimap.create();
     private final String tempDir;
 
     public SortingWriter(String tempDir, String output, int bucketSize) throws IOException {
@@ -45,7 +45,7 @@ public class SortingWriter implements Closeable {
         File file = new File(tempDir, "bucket-" + currentBucket + ".gz");
         currentBucket++;
         try (BufferedWriter bw = OsmProcessor.gzipFileWriter(file.getAbsolutePath())) {
-            for (Entry<String, String> e : bucket.entrySet()) {
+            for (Entry<String, String> e : bucket.entries()) {
                 bw.write(e.getKey() + ";" + e.getValue() + "\n");
             }
             bucketFiles.add(file.getAbsolutePath());
