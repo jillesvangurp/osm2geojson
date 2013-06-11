@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map.Entry;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.StringUtils;
 
 import com.google.common.collect.TreeMultimap;
 import com.jillesvangurp.iterables.LineIterable;
@@ -31,7 +32,9 @@ public class SortingWriter implements Closeable {
         this.tempDir = tempDir;
         this.output = output;
         this.bucketSize = bucketSize;
-        FileUtils.forceMkdir(new File(tempDir));
+        if(StringUtils.isNotEmpty(tempDir)) {
+            FileUtils.forceMkdir(new File(tempDir));
+        }
     }
 
     public void put(String key, String value) {
@@ -55,6 +58,14 @@ public class SortingWriter implements Closeable {
         }
     }
 
+    public static String key(String line) {
+        int idx = line.indexOf(';');
+        if (idx < 0) {
+            throw new IllegalStateException("line has no key " + line);
+        }
+        return line.substring(0, idx);
+    }
+
     @Override
     public void close() throws IOException {
         if (bucket.size() > 0) {
@@ -72,13 +83,6 @@ public class SortingWriter implements Closeable {
                     return key(line1).compareTo(key(line2));
                 }
 
-                private String key(String line) {
-                    int idx = line.indexOf(';');
-                    if (idx < 0) {
-                        throw new IllegalStateException("line has no key " + line);
-                    }
-                    return line.substring(0, idx);
-                }
             });
             try (BufferedWriter bw = OsmProcessor.gzipFileWriter(output)) {
                 for (String line : mergeIt) {
