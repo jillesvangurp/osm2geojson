@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.metrics.LoggingCounter;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.TreeMultimap;
@@ -39,6 +40,8 @@ public class SortingWriter implements Closeable {
 
     Lock bucketLock = new ReentrantLock();
 
+    private final LoggingCounter loggingCounter;
+
     public SortingWriter(String tempDir, String output, int bucketSize) throws IOException {
         this.tempDir = tempDir;
         this.output = output;
@@ -46,6 +49,7 @@ public class SortingWriter implements Closeable {
         if(StringUtils.isNotEmpty(tempDir)) {
             FileUtils.forceMkdir(new File(tempDir));
         }
+        loggingCounter = LoggingCounter.counter(LOG, "sort buckets " + output , "lines", 100000);
     }
 
     public void put(String key, String value) {
@@ -53,6 +57,7 @@ public class SortingWriter implements Closeable {
             flushBucket(false);
         }
         bucket.put(key, value);
+        loggingCounter.inc();
     }
 
     private void flushBucket(boolean skipSizeCheck) {
@@ -77,7 +82,6 @@ public class SortingWriter implements Closeable {
                 for (Entry<String, String> e : oldBucket.entries()) {
                     bw.write(e.getKey() + ";" + e.getValue() + "\n");
                 }
-                LOG.info("write bucket " + file.getAbsolutePath());
                 bucketFiles.add(file.getAbsolutePath());
             } catch (IOException e) {
                 throw new IllegalStateException(e);
@@ -98,6 +102,8 @@ public class SortingWriter implements Closeable {
         if (bucket.size() > 0) {
             flushBucket(true);
         }
+        loggingCounter.close();
+        LoggingCounter mergeCounter = LoggingCounter.counter(LOG, "merge buckets into "  + output, " lines", 100000);
         List<LineIterable> lineIterables = new ArrayList<>();
         try {
             for (String file : bucketFiles) {
@@ -115,12 +121,14 @@ public class SortingWriter implements Closeable {
             try (BufferedWriter bw = ResourceUtil.gzipFileWriter(output)) {
                 for (String line : mergeIt) {
                     bw.write(line + '\n');
+                    mergeCounter.inc();
                 }
             }
         } finally {
             for (LineIterable li : lineIterables) {
                 li.close();
             }
+            mergeCounter.close();
         }
     }
 }
