@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.mergesort;
 
 import java.io.BufferedWriter;
 import java.io.Closeable;
@@ -8,10 +8,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import com.github.jillesvangurp.common.ResourceUtil;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 import com.google.common.collect.TreeMultimap;
 import com.jillesvangurp.iterables.LineIterable;
 
@@ -20,13 +27,17 @@ import com.jillesvangurp.iterables.LineIterable;
  * a temp directory to store in between files so it can sort more data than fits into memory.
  */
 public class SortingWriter implements Closeable {
+    private static Logger LOG=LoggerFactory.getLogger(SortingWriter.class);
+
     private final String output;
     private final int bucketSize;
     private int currentBucket = 0;
     private final List<String> bucketFiles = new ArrayList<>();
 
-    TreeMultimap<String, String> bucket = TreeMultimap.create();
+    Multimap<String, String> bucket = Multimaps.synchronizedMultimap(TreeMultimap.<String,String>create());
     private final String tempDir;
+
+    Lock bucketLock = new ReentrantLock();
 
     public SortingWriter(String tempDir, String output, int bucketSize) throws IOException {
         this.tempDir = tempDir;
@@ -39,22 +50,38 @@ public class SortingWriter implements Closeable {
 
     public void put(String key, String value) {
         if (bucket.size() >= bucketSize) {
-            flushBucket();
+            flushBucket(false);
         }
         bucket.put(key, value);
     }
 
-    private void flushBucket() {
-        File file = new File(tempDir, "bucket-" + currentBucket + ".gz");
-        currentBucket++;
-        try (BufferedWriter bw = OsmProcessor.gzipFileWriter(file.getAbsolutePath())) {
-            for (Entry<String, String> e : bucket.entries()) {
-                bw.write(e.getKey() + ";" + e.getValue() + "\n");
+    private void flushBucket(boolean skipSizeCheck) {
+        Multimap<String, String> oldBucket=null;
+        int bucketNr=-1;
+        bucketLock.lock();
+        try {
+            if(bucket.size() > bucketSize || skipSizeCheck) {
+                // atomically switch over the bucket and then write the old one
+                oldBucket = bucket;
+                bucketNr= currentBucket;
+                currentBucket++;
+                bucket = Multimaps.synchronizedMultimap(TreeMultimap.<String,String>create());
             }
-            bucketFiles.add(file.getAbsolutePath());
-            bucket.clear();
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
+        } finally {
+            bucketLock.unlock();
+        }
+        if(oldBucket != null) {
+            File file = new File(tempDir, "bucket-" + bucketNr + ".gz");
+
+            try (BufferedWriter bw = ResourceUtil.gzipFileWriter(file.getAbsolutePath())) {
+                for (Entry<String, String> e : oldBucket.entries()) {
+                    bw.write(e.getKey() + ";" + e.getValue() + "\n");
+                }
+                LOG.info("write bucket " + file.getAbsolutePath());
+                bucketFiles.add(file.getAbsolutePath());
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
@@ -69,13 +96,14 @@ public class SortingWriter implements Closeable {
     @Override
     public void close() throws IOException {
         if (bucket.size() > 0) {
-            flushBucket();
+            flushBucket(true);
         }
         List<LineIterable> lineIterables = new ArrayList<>();
         try {
             for (String file : bucketFiles) {
                 lineIterables.add(LineIterable.openGzipFile(file));
             }
+            LOG.info("merging " + lineIterables.size() + " buckets");
             MergingIterable<String> mergeIt = new MergingIterable<String>(lineIterables, new Comparator<String>() {
 
                 @Override
@@ -84,7 +112,7 @@ public class SortingWriter implements Closeable {
                 }
 
             });
-            try (BufferedWriter bw = OsmProcessor.gzipFileWriter(output)) {
+            try (BufferedWriter bw = ResourceUtil.gzipFileWriter(output)) {
                 for (String line : mergeIt) {
                     bw.write(line + '\n');
                 }

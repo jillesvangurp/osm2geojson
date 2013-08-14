@@ -8,6 +8,7 @@ import java.util.Arrays;
 
 import org.testng.annotations.Test;
 
+import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.google.common.collect.TreeMultimap;
 
 @Test

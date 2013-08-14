@@ -15,27 +15,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
+import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.PeekableIterator;
 
 public class OsmJoin {
-    private static final String WAYS_RELATIONS_GZ = "./temp/ways-relations.gz";
-
-    private static final String NODES_RELATIONS_GZ = "./temp/nodes-relations.gz";
-
-    private static final String RELATIONS_GZ = "./temp/relations.gz";
-
-    private static final String WAYS_GZ = "./temp/ways.gz";
-
-    private static final String NODES_WAYS_GZ = "./temp/nodes-ways.gz";
+    private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
 
     private static final String NODES_GZ = "./temp/nodes.gz";
+    private static final String RELATIONS_GZ = "./temp/relations.gz";
+    private static final String WAYS_GZ = "./temp/ways.gz";
+    private static final String WAYS_BY_NODE_ID_GZ = "./temp/nodes-ways.gz";
+    private static final String RELATIONS_BY_NODE_ID_GZ = "./temp/nodes-relations.gz";
+    private static final String RELATIONS_BY_WAY_ID_GZ = "./temp/ways-relations.gz";
 
     private static final int BUCKET_SIZE = 100000;
-
-    private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
 
     final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
     final Pattern latPattern = Pattern.compile("lat=\"([0-9]+(\\.[0-9]+)?)");
@@ -52,12 +49,12 @@ public class OsmJoin {
     public void splitAndEmit(String osmFile) {
 
         try (SortingWriter nodesWriter = new SortingWriter("./temp/nodes", NODES_GZ, BUCKET_SIZE)) {
-            try (SortingWriter nodesWaysWriter = new SortingWriter("./temp/nodes-ways", NODES_WAYS_GZ, BUCKET_SIZE)) {
+            try (SortingWriter nodesWaysWriter = new SortingWriter("./temp/nodes-ways", WAYS_BY_NODE_ID_GZ, BUCKET_SIZE)) {
                 try (SortingWriter waysWriter = new SortingWriter("./temp/ways", WAYS_GZ, BUCKET_SIZE)) {
                     try (SortingWriter relationsWriter = new SortingWriter("./temp/relations", RELATIONS_GZ, BUCKET_SIZE)) {
-                        try (SortingWriter nodesRelationsWriter = new SortingWriter("./temp/nodes-relations", NODES_RELATIONS_GZ, BUCKET_SIZE)) {
-                            try (SortingWriter waysRelationsWriter = new SortingWriter("./temp/ways-relations", WAYS_RELATIONS_GZ, BUCKET_SIZE)) {
-                                try (LineIterable lineIterable = new LineIterable(OsmProcessor.bzip2Reader(OSM_XML));) {
+                        try (SortingWriter nodesRelationsWriter = new SortingWriter("./temp/nodes-relations", RELATIONS_BY_NODE_ID_GZ, BUCKET_SIZE)) {
+                            try (SortingWriter waysRelationsWriter = new SortingWriter("./temp/ways-relations", RELATIONS_BY_WAY_ID_GZ, BUCKET_SIZE)) {
+                                try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(OSM_XML));) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
                                     for (String blob : osmIterable) {
                                         if (blob.trim().startsWith("<node")) {
@@ -165,8 +162,8 @@ public class OsmJoin {
 
     public void mergeNodesAndWays(String tempDir, String waysNodesGz) {
         // merge nodes.gz nodes-ways.gz -> ways-nodes.gz (wayid; nodejson)
-        try(LineIterable nodesWaysIt= LineIterable.openGzipFile(NODES_WAYS_GZ)) {
-            try(LineIterable nodesIt= LineIterable.openGzipFile(NODES_GZ)) {
+        try(LineIterable nodesIt= LineIterable.openGzipFile(NODES_GZ)) {
+            try(LineIterable nodesWaysIt= LineIterable.openGzipFile(WAYS_BY_NODE_ID_GZ)) {
                 try(SortingWriter sortingWriter = new SortingWriter(tempDir, waysNodesGz, BUCKET_SIZE)) {
                     mergeNodeJsonWithWayIds(nodesWaysIt, nodesIt, sortingWriter);
                 }
@@ -236,7 +233,9 @@ public class OsmJoin {
     }
 
     /*
-     * nodes.gz nodeid; nodejson ways.gz wayid; wayjson nodes-ways.gz nodeid;wayid relations.gz
+     * nodes.gz nodeid; nodejson
+     * ways.gz wayid; wayjson
+     * nodes-ways.gz nodeid;wayid relations.gz
      * relationid;role;relationjson nodes-relations.gz nodeid;relationid ways-relations.gz wayid;relationid
      * node-ways-merged; wayid; nodejson ways-merged; wayid; wayjson nodes-relations-merged relationid; nodejson
      * ways-relations-merged relationid;wayjson relations-merged relationid; relationjson

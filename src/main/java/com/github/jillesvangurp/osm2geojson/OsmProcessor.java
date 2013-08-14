@@ -24,29 +24,19 @@ package com.github.jillesvangurp.osm2geojson;
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
-import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.jillesvangurp.common.ResourceUtil;
 import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
@@ -107,7 +97,7 @@ public class OsmProcessor {
     }
 
     private static void exportNamedPoints(PersistentCachingMap<Long, JsonObject> nodeKv, PersistentCachingMap<Long, JsonObject> wayKv) throws IOException {
-        try(BufferedWriter bw=gzipFileWriter("areas.gz")) {
+        try(BufferedWriter bw=ResourceUtil.gzipFileWriter("areas.gz")) {
             for(Entry<Long, JsonObject> entry: nodeKv) {
                 JsonObject node = entry.getValue();
                 String serialized = node.toString();
@@ -148,7 +138,7 @@ public class OsmProcessor {
     private static void processOsm(final PersistentCachingMap<Long, JsonObject> nodeKv, final PersistentCachingMap<Long, JsonObject> wayKv,
             final PersistentCachingMap<Long, JsonObject> relationKv, String osmXml) {
 
-        try (LineIterable lineIterable = new LineIterable(bzip2Reader(osmXml));) {
+        try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmXml));) {
             OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
             Processor<String, String> processor = new OsmBlobProcessor(nodeKv, relationKv, wayKv);
@@ -185,7 +175,7 @@ public class OsmProcessor {
         int notamultipoly=0;
         int incomplete=0;
         int noname=0;
-        try (BufferedWriter out = gzipFileWriter(RELATIONS_GZ)) {
+        try (BufferedWriter out = ResourceUtil.gzipFileWriter(RELATIONS_GZ)) {
             for (Entry<Long, JsonObject> entry : relationKv) {
                 JsonObject object = entry.getValue();
                 if (object.get("incomplete") == null) {
@@ -253,7 +243,7 @@ public class OsmProcessor {
     }
 
     private static void exportWays(PersistentCachingMap<Long, JsonObject> wayKv) throws IOException {
-        try (BufferedWriter out = gzipFileWriter(WAYS_GZ)) {
+        try (BufferedWriter out = ResourceUtil.gzipFileWriter(WAYS_GZ)) {
             for (Entry<Long, JsonObject> entry : wayKv) {
                 JsonObject object = entry.getValue();
                 String name = object.getString("name");
@@ -330,7 +320,7 @@ public class OsmProcessor {
     }
 
     private static void exportNodes(PersistentCachingMap<Long, JsonObject> nodeKv) throws IOException {
-        try (BufferedWriter out = gzipFileWriter(NODES_GZ)) {
+        try (BufferedWriter out = ResourceUtil.gzipFileWriter(NODES_GZ)) {
             for (Entry<Long, JsonObject> entry : nodeKv) {
                 JsonObject object = entry.getValue();
                 String name = object.getString("name");
@@ -585,18 +575,6 @@ public class OsmProcessor {
                 polygon.add(innerPolygon);
             }
         }
-    }
-
-    public static InputStreamReader bzip2Reader(String fileName) throws IOException, FileNotFoundException {
-        return new InputStreamReader(new BZip2CompressorInputStream(new FileInputStream(fileName)), Charset.forName("UTF-8"));
-    }
-
-    public static BufferedWriter gzipFileWriter(String file) throws IOException {
-        return new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(new FileOutputStream(file)), Charset.forName("utf-8")));
-    }
-
-    public static BufferedReader gzipFileReader(File file) throws IOException {
-        return new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(file)), Charset.forName("utf-8")));
     }
 
 }
