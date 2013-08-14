@@ -6,15 +6,15 @@ import static com.jillesvangurp.iterables.Iterables.consume;
 import static com.jillesvangurp.iterables.Iterables.map;
 import static com.jillesvangurp.iterables.Iterables.processConcurrently;
 
+import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.xml.xpath.XPathExpressionException;
 
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -22,6 +22,7 @@ import org.xml.sax.SAXException;
 import com.github.jillesvangurp.common.ResourceUtil;
 import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.github.jillesvangurp.metrics.StopWatch;
+import com.github.jillesvangurp.osm2geojson.EntryJoiningIterable.JoinedEntries;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
@@ -32,13 +33,16 @@ import com.jillesvangurp.iterables.Processor;
 public class OsmJoin {
     private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
 
-    private static final String NODE_ID_NODEJSON_GZ = "./temp/nodeid2rawnodejson.gz";
-    private static final String REL_ID_RELJSON_GZ = "./temp/relid2rawreljson.gz";
-    private static final String WAY_ID_WAYJSON_GZ = "./temp/wayid2rawwayjson.gz";
-    private static final String NODE_ID_WAY_ID_MAP = "./temp/nodeid2wayid.gz";
-    private static final String NODE_ID_REL_ID_MAP = "./temp/nodeid2relid.gz";
-    private static final String WAY_ID_REL_ID_MAP = "./temp/wayid2relid.gz";
+    private static final String NODE_ID_NODEJSON_MAP = "nodeid2rawnodejson.gz";
+    private static final String REL_ID_RELJSON_MAP = "relid2rawreljson.gz";
+    private static final String WAY_ID_WAYJSON_MAP = "wayid2rawwayjson.gz";
+    private static final String NODE_ID_WAY_ID_MAP = "nodeid2wayid.gz";
+    private static final String NODE_ID_REL_ID_MAP = "nodeid2relid.gz";
+    private static final String WAY_ID_REL_ID_MAP = "wayid2relid.gz";
 
+    private static final String WAY_ID_NODE_JSON_MAP = "wayid2nodejson.gz";
+
+    // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
     private static final int BUCKET_SIZE = 100000;
 
     final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
@@ -50,19 +54,38 @@ public class OsmJoin {
 
     private static final String OSM_XML = "/Users/jilles/data/brandenburg.osm.bz2";
 
-    public OsmJoin() {
+    private final String workDirectory;
+
+    public OsmJoin(String workDirectory) {
+        this.workDirectory = workDirectory;
+        try {
+            FileUtils.forceMkdir(new File(workDirectory));
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot create dir " + workDirectory);
+        }
     }
 
+    private String bucketDir(String file) {
+        return workDirectory + File.separatorChar + file + ".buckets";
+    }
+
+    private SortingWriter sortingWriter(String file) {
+        try {
+            return new SortingWriter(bucketDir(file), file, BUCKET_SIZE);
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot create sorting writer " + file);
+        }
+    }
     public void splitAndEmit(String osmFile) {
 
         // create various sorted maps that need to be joined in the next steps
 
-        try (SortingWriter nodesWriter = new SortingWriter("./temp/nodes", NODE_ID_NODEJSON_GZ, BUCKET_SIZE)) {
-            try (SortingWriter nodeid2WayidWriter = new SortingWriter("./temp/nodes-ways", NODE_ID_WAY_ID_MAP, BUCKET_SIZE)) {
-                try (SortingWriter waysWriter = new SortingWriter("./temp/ways", WAY_ID_WAYJSON_GZ, BUCKET_SIZE)) {
-                    try (SortingWriter relationsWriter = new SortingWriter("./temp/relations", REL_ID_RELJSON_GZ, BUCKET_SIZE)) {
-                        try (SortingWriter nodeId2RelIdWriter = new SortingWriter("./temp/nodes-relations", NODE_ID_REL_ID_MAP, BUCKET_SIZE)) {
-                            try (SortingWriter wayId2RelIdWriter = new SortingWriter("./temp/ways-relations", WAY_ID_REL_ID_MAP, BUCKET_SIZE)) {
+        try (SortingWriter nodesWriter = sortingWriter(NODE_ID_NODEJSON_MAP)) {
+            try (SortingWriter nodeid2WayidWriter = sortingWriter(NODE_ID_WAY_ID_MAP)) {
+                try (SortingWriter waysWriter = sortingWriter(WAY_ID_WAYJSON_MAP)) {
+                    try (SortingWriter relationsWriter = sortingWriter(REL_ID_RELJSON_MAP)) {
+                        try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP)) {
+                            try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP)) {
                                 try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(OSM_XML));) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
@@ -186,19 +209,19 @@ public class OsmJoin {
         }
     }
 
-    public void mergeNodesAndWays(String tempDir, String waysNodesGz) {
-        // merge nodes.gz nodes-ways.gz -> ways-nodes.gz (wayid; nodejson)
-        try(LineIterable nodeJsonIt= LineIterable.openGzipFile(NODE_ID_NODEJSON_GZ)) {
-            try(LineIterable node2wayIt= LineIterable.openGzipFile(NODE_ID_WAY_ID_MAP)) {
-                try(SortingWriter sortingWriter = new SortingWriter(tempDir, waysNodesGz, BUCKET_SIZE)) {
-                    mergeNodeJsonWithWayIds(node2wayIt, nodeJsonIt, sortingWriter);
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        // merge ways-nodes.gz ways.gz -> ways-merged.gz (wayid; wayjson
-    }
+//    public void mergeNodesAndWays(String tempDir, String waysNodesGz) {
+//        // merge nodes.gz nodes-ways.gz -> ways-nodes.gz (wayid; nodejson)
+//        try(LineIterable nodeJsonIt= LineIterable.openGzipFile(NODE_ID_NODEJSON_GZ)) {
+//            try(LineIterable node2wayIt= LineIterable.openGzipFile(NODE_ID_WAY_ID_MAP)) {
+//                try(SortingWriter sortingWriter = new SortingWriter(tempDir, waysNodesGz, BUCKET_SIZE)) {
+//                    mergeNodeJsonWithWayIds(node2wayIt, nodeJsonIt, sortingWriter);
+//                }
+//            }
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        // merge ways-nodes.gz ways.gz -> ways-merged.gz (wayid; wayjson
+//    }
 
     public static <In, Out> void processIt(Iterable<In> iterable, Processor<In, Out> processor, int blockSize, int threads, int queueSize) {
         try (ConcurrentProcessingIterable<In, Out> concIt = processConcurrently(iterable, processor, blockSize, threads, queueSize)) {
@@ -212,103 +235,47 @@ public class OsmJoin {
         return new PeekableIterator<Entry<String,String>>(map(it, new EntryParsingProcessor()));
     }
 
-    void createWayId2NodeJsonMap(Iterable<String> nodes2ways, Iterable<String> nodes2Json, SortingWriter out) {
-        PeekableIterator<Entry<String, String>> node2WayIt = peekableEntryIterable(nodes2ways);
-        PeekableIterator<Entry<String, String>> node2JsonIt = peekableEntryIterable(nodes2Json);
-        List<String> nodeBuffer = new ArrayList<>();
-        while(node2WayIt.hasNext() && node2JsonIt.hasNext()) {
-            Entry<String, String> nodeJsonEntry = node2JsonIt.next();
-            String nodeId=nodeJsonEntry.getKey();
-            nodeBuffer.add(nodeJsonEntry.getValue());
-            if(node2JsonIt.hasNext()) {
-                Entry<String, String> nextNode2JsonEntry = node2JsonIt.peek();
-                String nextNodeId=nextNode2JsonEntry.getValue();
-                while(nextNodeId.equals(nodeId)) {
-                    nextNode2JsonEntry = node2JsonIt.next();
-                    nodeBuffer.add(nextNode2JsonEntry.getValue());
-                    if(node2JsonIt.hasNext()) {
-                        nextNode2JsonEntry = node2JsonIt.peek();
-                        nextNodeId=nextNode2JsonEntry.getValue();
-                    } else {
-                        nextNodeId=null;
-                    }
-                }
-            }
+    void createWayId2NodeJsonMap(String nodeId2wayIdFile, String nodeId2nodeJsonFile, String outputFile) {
+        try (SortingWriter out = sortingWriter(WAY_ID_NODE_JSON_MAP)) {
+            EntryJoiningIterable.join(nodeId2nodeJsonFile,nodeId2wayIdFile, new Processor<EntryJoiningIterable.JoinedEntries, Boolean>() {
 
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    String nodeJson = joined.left.get(0).getValue();
+                    for(Entry<String, String> e: joined.right) {
+                        String wayId = e.getValue();
+                        out.put(wayId, nodeJson);
+                    }
+
+                    return true;
+                }
+            });
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer",e);
         }
     }
 
-    void mergeNodeJsonWithWayIds(Iterable<String> node2wayIt, Iterable<String> nodeJsonIt, SortingWriter sortingWriter) {
-        PeekableIterator<String> node2wayPeekingIt = new PeekableIterator<String>(node2wayIt.iterator());
-        PeekableIterator<String> rightPeekingIt = new PeekableIterator<String>(nodeJsonIt.iterator());
-        List<String> nodeBuffer = new ArrayList<>();
-        while(node2wayPeekingIt.hasNext() && rightPeekingIt.hasNext()) {
-            nodeBuffer.clear();
-            String nwLine = rightPeekingIt.next();
-            int idx = nwLine.indexOf(';');
-            String nodeId = nwLine.substring(0, idx);
-            nodeBuffer.add(nwLine.substring(idx+1));
-            if(rightPeekingIt.hasNext()) {
-                String nextNwLine = rightPeekingIt.peek();
-                idx=nextNwLine.indexOf(';');
-                String nextNodeId=nextNwLine.substring(0,idx);
+    public void processAll() {
+        // the join process works by parsing the osm xml blob for blob and creating several sorted multi maps as files using SortingWriter
+        // these map files are then joined to more complex files in several steps using the EntryJoiningIterable
+        // the main idea behind this approach is to not try to fit everything in ram at once and process efficiently by working with sorted files
+        // the output should be a big gzip file with all the nodes, ways, and relations as json blobs on each line. Each blob should have all the stuff it refers embedded.
 
-                // there may be multiple ways with the same node; get all their ids
-                while(nextNodeId.equals(nodeId)) {
-                    nextNwLine=rightPeekingIt.next();
-                    nodeBuffer.add(nextNwLine.substring(idx+1));
-                    if(rightPeekingIt.hasNext()) {
-                        nextNwLine = rightPeekingIt.peek();
-                        idx=nextNwLine.indexOf(';');
-                        nextNodeId=nextNwLine.substring(0,idx);
-                    } else {
-                        nextNodeId=null;
-                    }
-                }
-            }
-            if(node2wayPeekingIt.hasNext()) {
-                String nodeLine = node2wayPeekingIt.peek();
-                idx = nodeLine.indexOf(';');
-                String nextNodeId=nodeLine.substring(0,idx);
-                while (node2wayPeekingIt.hasNext() && nextNodeId.compareTo(nodeId) < 0) {
-                    // fast forward until we find line with the nodeId or something larger
-                    node2wayPeekingIt.next();
-                    nodeLine = node2wayPeekingIt.peek();
-                    idx = nodeLine.indexOf(';');
-                    nextNodeId=nodeLine.substring(0,idx);
-                }
-                if (nextNodeId.compareTo(nodeId) == 0) {
-                    // there should only be one line per nodeId
-                    nodeLine = node2wayPeekingIt.next();
-                    String wayId = nodeLine.substring(idx+1);
-                    for(String nodeJson: nodeBuffer) {
-                        sortingWriter.put(wayId,nodeJson);
-                    }
-                }
-            }
+        StopWatch processTimer = StopWatch.time(LOG, "process " + OSM_XML);
+        StopWatch timer = StopWatch.time(LOG, "splitting " +OSM_XML);
+        splitAndEmit(OSM_XML);
+        timer.stop();
 
-        }
+        timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
+        createWayId2NodeJsonMap(NODE_ID_WAY_ID_MAP, NODE_ID_NODEJSON_MAP, WAY_ID_NODE_JSON_MAP);
+        timer.stop();
+
+        processTimer.stop();
+
     }
 
     public static void main(String[] args) {
-        OsmJoin osmJoin = new OsmJoin();
-        StopWatch processTimer = StopWatch.time(LOG, "process " + OSM_XML);
-        StopWatch timer = StopWatch.time(LOG, "creating id maps for " +OSM_XML);
-        osmJoin.splitAndEmit(OSM_XML);
-        timer.stop();
-
-        timer=StopWatch.time(LOG, "merge nodes and ways");
-        osmJoin.mergeNodesAndWays("./temp/ways-nodes", "./temp/ways-nodes.gz");
-        timer.stop();
-        processTimer.stop();
+        OsmJoin osmJoin = new OsmJoin("./temp");
+        osmJoin.processAll();
     }
-
-    /*
-     * nodes.gz nodeid; nodejson
-     * ways.gz wayid; wayjson
-     * nodes-ways.gz nodeid;wayid relations.gz
-     * relationid;role;relationjson nodes-relations.gz nodeid;relationid ways-relations.gz wayid;relationid
-     * node-ways-merged; wayid; nodejson ways-merged; wayid; wayjson nodes-relations-merged relationid; nodejson
-     * ways-relations-merged relationid;wayjson relations-merged relationid; relationjson
-     */
 }
