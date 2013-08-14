@@ -8,8 +8,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -38,7 +38,7 @@ public class SortingWriter implements Closeable {
     Multimap<String, String> bucket = Multimaps.synchronizedMultimap(TreeMultimap.<String,String>create());
     private final String tempDir;
 
-    Lock bucketLock = new ReentrantLock();
+    ReadWriteLock bucketLock = new ReentrantReadWriteLock();
 
     private final LoggingCounter loggingCounter;
 
@@ -56,14 +56,19 @@ public class SortingWriter implements Closeable {
         if (bucket.size() >= bucketSize) {
             flushBucket(false);
         }
-        bucket.put(key, value);
+        bucketLock.readLock().lock();
+        try {
+            bucket.put(key, value);
+        } finally {
+            bucketLock.readLock().unlock();
+        }
         loggingCounter.inc();
     }
 
     private void flushBucket(boolean skipSizeCheck) {
         Multimap<String, String> oldBucket=null;
         int bucketNr=-1;
-        bucketLock.lock();
+        bucketLock.writeLock().lock();
         try {
             if(bucket.size() > bucketSize || skipSizeCheck) {
                 // atomically switch over the bucket and then write the old one
@@ -73,7 +78,7 @@ public class SortingWriter implements Closeable {
                 bucket = Multimaps.synchronizedMultimap(TreeMultimap.<String,String>create());
             }
         } finally {
-            bucketLock.unlock();
+            bucketLock.writeLock().unlock();
         }
         if(oldBucket != null) {
             File file = new File(tempDir, "bucket-" + bucketNr + ".gz");
