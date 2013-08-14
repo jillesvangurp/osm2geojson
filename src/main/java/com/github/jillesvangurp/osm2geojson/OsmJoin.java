@@ -2,10 +2,14 @@ package com.github.jillesvangurp.osm2geojson;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
+import static com.jillesvangurp.iterables.Iterables.consume;
+import static com.jillesvangurp.iterables.Iterables.map;
+import static com.jillesvangurp.iterables.Iterables.processConcurrently;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,8 +24,10 @@ import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.github.jillesvangurp.metrics.StopWatch;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
+import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.PeekableIterator;
+import com.jillesvangurp.iterables.Processor;
 
 public class OsmJoin {
     private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
@@ -49,7 +55,7 @@ public class OsmJoin {
 
     public void splitAndEmit(String osmFile) {
 
-        // create sorted maps that need to be joined in the next step
+        // create various sorted maps that need to be joined in the next steps
 
         try (SortingWriter nodesWriter = new SortingWriter("./temp/nodes", NODE_ID_NODEJSON_GZ, BUCKET_SIZE)) {
             try (SortingWriter nodeid2WayidWriter = new SortingWriter("./temp/nodes-ways", NODE_ID_WAY_ID_MAP, BUCKET_SIZE)) {
@@ -59,14 +65,31 @@ public class OsmJoin {
                             try (SortingWriter wayId2RelIdWriter = new SortingWriter("./temp/ways-relations", WAY_ID_REL_ID_MAP, BUCKET_SIZE)) {
                                 try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(OSM_XML));) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
-                                    for (String blob : osmIterable) {
-                                        if (blob.trim().startsWith("<node")) {
-                                            parseNode(nodesWriter, blob);
-                                        } else if (blob.trim().startsWith("<way")) {
-                                            parseWay(waysWriter, nodeid2WayidWriter, blob);
-                                        } else {
-                                            parseRelation(relationsWriter, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
+
+                                    Processor<String, Boolean> processor = new Processor<String, Boolean>() {
+
+                                        @Override
+                                        public Boolean process(String blob) {
+                                            try {
+                                                if (blob.trim().startsWith("<node")) {
+                                                    parseNode(nodesWriter, blob);
+                                                } else if (blob.trim().startsWith("<way")) {
+                                                    parseWay(waysWriter, nodeid2WayidWriter, blob);
+                                                } else {
+                                                    parseRelation(relationsWriter, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
+                                                }
+                                                return true;
+                                            } catch (XPathExpressionException e) {
+                                                throw new IllegalStateException("invalid xpath!",e);
+                                            } catch (SAXException e) {
+                                                LOG.warn("parse error for " + blob);
+                                                return false;
+                                            }
+
                                         }
+                                    };
+                                    try(ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9, 10000)) {
+                                        consume(it);
                                     }
                                 }
                             }
@@ -165,10 +188,10 @@ public class OsmJoin {
 
     public void mergeNodesAndWays(String tempDir, String waysNodesGz) {
         // merge nodes.gz nodes-ways.gz -> ways-nodes.gz (wayid; nodejson)
-        try(LineIterable nodesIt= LineIterable.openGzipFile(NODE_ID_NODEJSON_GZ)) {
-            try(LineIterable nodesWaysIt= LineIterable.openGzipFile(NODE_ID_WAY_ID_MAP)) {
+        try(LineIterable nodeJsonIt= LineIterable.openGzipFile(NODE_ID_NODEJSON_GZ)) {
+            try(LineIterable node2wayIt= LineIterable.openGzipFile(NODE_ID_WAY_ID_MAP)) {
                 try(SortingWriter sortingWriter = new SortingWriter(tempDir, waysNodesGz, BUCKET_SIZE)) {
-                    mergeNodeJsonWithWayIds(nodesWaysIt, nodesIt, sortingWriter);
+                    mergeNodeJsonWithWayIds(node2wayIt, nodeJsonIt, sortingWriter);
                 }
             }
         } catch (IOException e) {
@@ -177,16 +200,54 @@ public class OsmJoin {
         // merge ways-nodes.gz ways.gz -> ways-merged.gz (wayid; wayjson
     }
 
-    void mergeNodeJsonWithWayIds(Iterable<String> leftIt, Iterable<String> rightIt, SortingWriter sortingWriter) {
-        PeekableIterator<String> leftPeekingIt = new PeekableIterator<String>(leftIt.iterator());
-        PeekableIterator<String> rightPeekingIt = new PeekableIterator<String>(rightIt.iterator());
-        List<String> idBuffer = new ArrayList<>();
-        while(leftPeekingIt.hasNext() && rightPeekingIt.hasNext()) {
-            idBuffer.clear();
+    public static <In, Out> void processIt(Iterable<In> iterable, Processor<In, Out> processor, int blockSize, int threads, int queueSize) {
+        try (ConcurrentProcessingIterable<In, Out> concIt = processConcurrently(iterable, processor, blockSize, threads, queueSize)) {
+            consume(concIt);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static PeekableIterator<Entry<String,String>> peekableEntryIterable(Iterable<String> it) {
+        return new PeekableIterator<Entry<String,String>>(map(it, new EntryParsingProcessor()));
+    }
+
+    void createWayId2NodeJsonMap(Iterable<String> nodes2ways, Iterable<String> nodes2Json, SortingWriter out) {
+        PeekableIterator<Entry<String, String>> node2WayIt = peekableEntryIterable(nodes2ways);
+        PeekableIterator<Entry<String, String>> node2JsonIt = peekableEntryIterable(nodes2Json);
+        List<String> nodeBuffer = new ArrayList<>();
+        while(node2WayIt.hasNext() && node2JsonIt.hasNext()) {
+            Entry<String, String> nodeJsonEntry = node2JsonIt.next();
+            String nodeId=nodeJsonEntry.getKey();
+            nodeBuffer.add(nodeJsonEntry.getValue());
+            if(node2JsonIt.hasNext()) {
+                Entry<String, String> nextNode2JsonEntry = node2JsonIt.peek();
+                String nextNodeId=nextNode2JsonEntry.getValue();
+                while(nextNodeId.equals(nodeId)) {
+                    nextNode2JsonEntry = node2JsonIt.next();
+                    nodeBuffer.add(nextNode2JsonEntry.getValue());
+                    if(node2JsonIt.hasNext()) {
+                        nextNode2JsonEntry = node2JsonIt.peek();
+                        nextNodeId=nextNode2JsonEntry.getValue();
+                    } else {
+                        nextNodeId=null;
+                    }
+                }
+            }
+
+        }
+    }
+
+    void mergeNodeJsonWithWayIds(Iterable<String> node2wayIt, Iterable<String> nodeJsonIt, SortingWriter sortingWriter) {
+        PeekableIterator<String> node2wayPeekingIt = new PeekableIterator<String>(node2wayIt.iterator());
+        PeekableIterator<String> rightPeekingIt = new PeekableIterator<String>(nodeJsonIt.iterator());
+        List<String> nodeBuffer = new ArrayList<>();
+        while(node2wayPeekingIt.hasNext() && rightPeekingIt.hasNext()) {
+            nodeBuffer.clear();
             String nwLine = rightPeekingIt.next();
             int idx = nwLine.indexOf(';');
             String nodeId = nwLine.substring(0, idx);
-            idBuffer.add(nwLine.substring(idx+1));
+            nodeBuffer.add(nwLine.substring(idx+1));
             if(rightPeekingIt.hasNext()) {
                 String nextNwLine = rightPeekingIt.peek();
                 idx=nextNwLine.indexOf(';');
@@ -195,33 +256,33 @@ public class OsmJoin {
                 // there may be multiple ways with the same node; get all their ids
                 while(nextNodeId.equals(nodeId)) {
                     nextNwLine=rightPeekingIt.next();
-                    idBuffer.add(nextNwLine.substring(idx+1));
+                    nodeBuffer.add(nextNwLine.substring(idx+1));
                     if(rightPeekingIt.hasNext()) {
-                    nextNwLine = rightPeekingIt.peek();
-                    idx=nextNwLine.indexOf(';');
-                    nextNodeId=nextNwLine.substring(0,idx);
+                        nextNwLine = rightPeekingIt.peek();
+                        idx=nextNwLine.indexOf(';');
+                        nextNodeId=nextNwLine.substring(0,idx);
                     } else {
                         nextNodeId=null;
                     }
                 }
             }
-            if(leftPeekingIt.hasNext()) {
-                String nodeLine = leftPeekingIt.peek();
+            if(node2wayPeekingIt.hasNext()) {
+                String nodeLine = node2wayPeekingIt.peek();
                 idx = nodeLine.indexOf(';');
                 String nextNodeId=nodeLine.substring(0,idx);
-                while (leftPeekingIt.hasNext() && nextNodeId.compareTo(nodeId) < 0) {
+                while (node2wayPeekingIt.hasNext() && nextNodeId.compareTo(nodeId) < 0) {
                     // fast forward until we find line with the nodeId or something larger
-                    leftPeekingIt.next();
-                    nodeLine = leftPeekingIt.peek();
+                    node2wayPeekingIt.next();
+                    nodeLine = node2wayPeekingIt.peek();
                     idx = nodeLine.indexOf(';');
                     nextNodeId=nodeLine.substring(0,idx);
                 }
                 if (nextNodeId.compareTo(nodeId) == 0) {
                     // there should only be one line per nodeId
-                    nodeLine = leftPeekingIt.next();
-                    String nodeJson = nodeLine.substring(idx+1);
-                    for(String wayId: idBuffer) {
-                        sortingWriter.put(wayId, nodeJson);
+                    nodeLine = node2wayPeekingIt.next();
+                    String wayId = nodeLine.substring(idx+1);
+                    for(String nodeJson: nodeBuffer) {
+                        sortingWriter.put(wayId,nodeJson);
                     }
                 }
             }
@@ -232,9 +293,10 @@ public class OsmJoin {
     public static void main(String[] args) {
         OsmJoin osmJoin = new OsmJoin();
         StopWatch processTimer = StopWatch.time(LOG, "process " + OSM_XML);
-        StopWatch timer = StopWatch.time(LOG, "splitting " +OSM_XML);
+        StopWatch timer = StopWatch.time(LOG, "creating id maps for " +OSM_XML);
         osmJoin.splitAndEmit(OSM_XML);
         timer.stop();
+
         timer=StopWatch.time(LOG, "merge nodes and ways");
         osmJoin.mergeNodesAndWays("./temp/ways-nodes", "./temp/ways-nodes.gz");
         timer.stop();
