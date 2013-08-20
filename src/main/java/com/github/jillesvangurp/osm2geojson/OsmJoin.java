@@ -55,7 +55,7 @@ public class OsmJoin {
 
 
     // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
-    private static final int BUCKET_SIZE = 100000;
+    private static final int BUCKET_SIZE = 1000000;
 
     final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
     final Pattern latPattern = Pattern.compile("lat=\"([0-9]+(\\.[0-9]+)?)");
