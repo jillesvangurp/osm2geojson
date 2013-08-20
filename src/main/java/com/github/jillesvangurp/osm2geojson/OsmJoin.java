@@ -64,7 +64,7 @@ public class OsmJoin {
     final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
     final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
 
-    private static final String OSM_XML = "/Users/jilles/data/brandenburg.osm.bz2";
+//    private static final String OSM_XML = "/Users/jilles/data/brandenburg.osm.bz2";
 
     private final String workDirectory;
 
@@ -101,7 +101,7 @@ public class OsmJoin {
                     try (SortingWriter relationsWriter = sortingWriter(REL_ID_RELJSON_MAP)) {
                         try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP)) {
                             try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP)) {
-                                try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(OSM_XML));) {
+                                try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile));) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
                                     Processor<String, Boolean> processor = new Processor<String, Boolean>() {
@@ -403,10 +403,10 @@ public class OsmJoin {
         // the main idea behind this approach is to not try to fit everything in ram at once and process efficiently by working with sorted files
         // the output should be a big gzip file with all the nodes, ways, and relations as json blobs on each line. Each blob should have all the stuff it refers embedded.
 
-        StopWatch processTimer = StopWatch.time(LOG, "process " + OSM_XML);
+        StopWatch processTimer = StopWatch.time(LOG, "process " + osmxml);
 
         StopWatch timer;
-        timer = StopWatch.time(LOG, "splitting " +OSM_XML);
+        timer = StopWatch.time(LOG, "splitting " +osmxml);
         splitAndEmit(osmxml);
         timer.stop();
 
