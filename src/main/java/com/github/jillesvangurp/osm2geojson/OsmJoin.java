@@ -113,8 +113,11 @@ public class OsmJoin {
                                                     parseNode(nodesWriter, blob);
                                                 } else if (blob.trim().startsWith("<way")) {
                                                     parseWay(waysWriter, nodeid2WayidWriter, blob);
-                                                } else {
+                                                } else if (blob.trim().startsWith("<relation")) {
                                                     parseRelation(relationsWriter, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
+                                                } else {
+                                                    // ignore redundant changeset, bound, and what not
+                                                    return false;
                                                 }
                                                 return true;
                                             } catch (XPathExpressionException e) {
