@@ -164,7 +164,7 @@ public class OsmJoin {
                 }
                 nodeWriter.put("" + id, node.toString());
             } else {
-                LOG.warn("no lat/lon for " + id);
+                // ignore nodes without coordinates (apparently they exist), don't flood the logs
             }
 
         } else {
