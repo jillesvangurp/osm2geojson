@@ -91,6 +91,7 @@ public class OsmJoin {
             throw new IllegalStateException("cannot create sorting writer " + file);
         }
     }
+
     public void splitAndEmit(String osmFile) {
 
         // create various sorted maps that need to be joined in the next steps
@@ -101,7 +102,7 @@ public class OsmJoin {
                     try (SortingWriter relationsWriter = sortingWriter(REL_ID_RELJSON_MAP)) {
                         try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP)) {
                             try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP)) {
-                                try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile));) {
+                                try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile))) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
                                     Processor<String, Boolean> processor = new Processor<String, Boolean>() {
@@ -127,6 +128,9 @@ public class OsmJoin {
 
                                         }
                                     };
+                                    System.out.println("Blob expected here!");
+                                    System.out.println(new PeekableIterator<>(osmIterable).peek());
+                                    System.out.println(".....");
                                     try(ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9, 10000)) {
                                         consume(it);
                                     }
