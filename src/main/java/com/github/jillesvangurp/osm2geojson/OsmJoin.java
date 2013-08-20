@@ -157,7 +157,9 @@ public class OsmJoin {
                     String name = kvm.group(1);
                     tags.put(name, kvm.group(2));
                 }
-                node.put("tags", tags);
+                if(tags.size()>0) {
+                    node.put("tags", tags);
+                }
                 nodeWriter.put("" + id, node.toString());
             } else {
                 LOG.warn("no lat/lon for " + id);
@@ -182,7 +184,9 @@ public class OsmJoin {
                 String name = kvm.group(1);
                 tags.put(name, kvm.group(2));
             }
-            way.put("tags", tags);
+            if(tags.size()>0) {
+                way.put("tags", tags);
+            }
             JsonArray nodeRefs=array();
             while (ndm.find()) {
                 Long nodeId = Long.valueOf(ndm.group(1));
@@ -207,7 +211,9 @@ public class OsmJoin {
                 String name = kvm.group(1);
                 tags.put(name, kvm.group(2));
             }
-            relation.put("tags", tags);
+            if(tags.size()>0) {
+                relation.put("tags", tags);
+            }
 
             JsonArray members = array();
             while (mm.find()) {
