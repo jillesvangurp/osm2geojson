@@ -2,12 +2,14 @@ package com.github.jillesvangurp.osm2geojson;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
+import static com.github.jsonj.tools.JsonBuilder.primitive;
 import static com.jillesvangurp.iterables.Iterables.consume;
 import static com.jillesvangurp.iterables.Iterables.map;
 import static com.jillesvangurp.iterables.Iterables.processConcurrently;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,6 +27,7 @@ import com.github.jillesvangurp.metrics.StopWatch;
 import com.github.jillesvangurp.osm2geojson.EntryJoiningIterable.JoinedEntries;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
+import com.github.jsonj.tools.JsonParser;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.PeekableIterator;
@@ -42,6 +45,15 @@ public class OsmJoin {
 
     private static final String WAY_ID_NODE_JSON_MAP = "wayid2nodejson.gz";
 
+    private static final String WAY_ID_COMPLETE_JSON = "wqyid2completejson.gz";
+
+    private static final String REL_ID_NODE_JSON_MAP = "relid2nodejson.gz";
+    private static final String REL_ID_JSON_WITH_NODES = "relid2jsonwithnodes.gz";
+
+    private static final String REL_ID_WAY_JSON_MAP = "relid2wayjson.gz";
+    private static final String REL_ID_COMPLETE_JSON = "relid2completejson.gz";
+
+
     // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
     private static final int BUCKET_SIZE = 100000;
 
@@ -56,8 +68,11 @@ public class OsmJoin {
 
     private final String workDirectory;
 
-    public OsmJoin(String workDirectory) {
+    private final JsonParser parser;
+
+    public OsmJoin(String workDirectory, JsonParser parser) {
         this.workDirectory = workDirectory;
+        this.parser = parser;
         try {
             FileUtils.forceMkdir(new File(workDirectory));
         } catch (IOException e) {
@@ -137,12 +152,12 @@ public class OsmJoin {
                 double longitude = Double.valueOf(lonm.group(1));
                 // using a more compact notation for points here than the geojson point type. OSM has a billion+ nodes.
                 JsonObject node = object().put("id", id).put("l", array(longitude, latitude)).get();
+                JsonObject tags=new JsonObject();
                 while (kvm.find()) {
                     String name = kvm.group(1);
-                    if (!OsmProcessor.BLACKLISTED_TAGS.contains(name)) {
-                        node.put(name, kvm.group(2));
-                    }
+                    tags.put(name, kvm.group(2));
                 }
+                node.put("tags", tags);
                 nodeWriter.put("" + id, node.toString());
             } else {
                 LOG.warn("no lat/lon for " + id);
@@ -162,16 +177,19 @@ public class OsmJoin {
         if (idm.find()) {
             long wayId = Long.valueOf(idm.group(1));
             JsonObject way = object().put("id", wayId).get();
+            JsonObject tags=new JsonObject();
             while (kvm.find()) {
                 String name = kvm.group(1);
-                if (!OsmProcessor.BLACKLISTED_TAGS.contains(name)) {
-                    way.put(name, kvm.group(2));
-                }
+                tags.put(name, kvm.group(2));
             }
+            way.put("tags", tags);
+            JsonArray nodeRefs=array();
             while (ndm.find()) {
                 Long nodeId = Long.valueOf(ndm.group(1));
                 nodeid2WayidWriter.put("" + nodeId, "" + wayId);
+                nodeRefs.add(primitive(nodeId));
             }
+            way.put("ns", nodeRefs);
             waysWriter.put("" + wayId, way.toString());
         }
     }
@@ -184,12 +202,12 @@ public class OsmJoin {
         if (idm.find()) {
             long relationId = Long.valueOf(idm.group(1));
             JsonObject relation = object().put("id", relationId).get();
+            JsonObject tags=new JsonObject();
             while (kvm.find()) {
                 String name = kvm.group(1);
-                if (!OsmProcessor.BLACKLISTED_TAGS.contains(name)) {
-                    relation.put(name, kvm.group(2));
-                }
+                tags.put(name, kvm.group(2));
             }
+            relation.put("tags", tags);
 
             JsonArray members = array();
             while (mm.find()) {
@@ -209,20 +227,6 @@ public class OsmJoin {
         }
     }
 
-//    public void mergeNodesAndWays(String tempDir, String waysNodesGz) {
-//        // merge nodes.gz nodes-ways.gz -> ways-nodes.gz (wayid; nodejson)
-//        try(LineIterable nodeJsonIt= LineIterable.openGzipFile(NODE_ID_NODEJSON_GZ)) {
-//            try(LineIterable node2wayIt= LineIterable.openGzipFile(NODE_ID_WAY_ID_MAP)) {
-//                try(SortingWriter sortingWriter = new SortingWriter(tempDir, waysNodesGz, BUCKET_SIZE)) {
-//                    mergeNodeJsonWithWayIds(node2wayIt, nodeJsonIt, sortingWriter);
-//                }
-//            }
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-//        // merge ways-nodes.gz ways.gz -> ways-merged.gz (wayid; wayjson
-//    }
-
     public static <In, Out> void processIt(Iterable<In> iterable, Processor<In, Out> processor, int blockSize, int threads, int queueSize) {
         try (ConcurrentProcessingIterable<In, Out> concIt = processConcurrently(iterable, processor, blockSize, threads, queueSize)) {
             consume(concIt);
@@ -236,8 +240,8 @@ public class OsmJoin {
     }
 
     void createWayId2NodeJsonMap(String nodeId2wayIdFile, String nodeId2nodeJsonFile, String outputFile) {
-        try (SortingWriter out = sortingWriter(WAY_ID_NODE_JSON_MAP)) {
-            EntryJoiningIterable.join(nodeId2nodeJsonFile,nodeId2wayIdFile, new Processor<EntryJoiningIterable.JoinedEntries, Boolean>() {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(nodeId2nodeJsonFile,nodeId2wayIdFile, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
                 public Boolean process(JoinedEntries joined) {
@@ -251,7 +255,139 @@ public class OsmJoin {
                 }
             });
         } catch (IOException e) {
-            throw new IllegalStateException("exception while closing sorted writer",e);
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile,e);
+        }
+    }
+
+    private void createWayId2CompleteJsonMap(String wayIdWayjsonMap, String wayIdNodeJsonMap, String outputFile) {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(wayIdWayjsonMap,wayIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
+
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    HashMap<String, JsonObject> nodes = new HashMap<String, JsonObject>();
+                    for(Entry<String, String> e: joined.right) {
+                        JsonObject node = parser.parse(e.getValue()).asObject();
+                        nodes.put(node.getString("id"), node);
+                    }
+                    Entry<String, String> wayEntry = joined.left.get(0);
+                    JsonObject way=parser.parse(wayEntry.getValue()).asObject();
+                    JsonArray nodeObjects = array();
+                    for(long nodeId: way.getArray("ns").longs()) {
+                        JsonObject node=nodes.get(""+nodeId);
+                        if(node != null) {
+                            nodeObjects.add(node);
+                        } else {
+                            way.getOrCreateArray("missingNodeRefs").add(primitive(nodeId));
+                        }
+                    }
+                    way.put("nodes", nodeObjects);
+                    way.remove("ns");
+                    out.put(wayEntry.getKey(), way.toString());
+                    return true;
+                }
+
+            });
+
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile ,e);
+        }
+    }
+
+    private void createRelid2NodeJsonMap(String nodeIdRelIdMap, String nodeIdNodejsonMap, String outputFile) {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(nodeIdRelIdMap,nodeIdNodejsonMap, new Processor<JoinedEntries, Boolean>() {
+
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    String nodeJson = joined.right.get(0).getValue();
+                    for(Entry<String, String> e: joined.left) {
+                        String relId = e.getValue();
+                        out.put(relId, nodeJson);
+                    }
+                    return true;
+                }
+
+            });
+
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile ,e);
+        }
+
+    }
+
+    private void createRelid2JsonWithNodes(String relIdReljsonMap, String relIdNodeJsonMap, String outputFile) {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(relIdReljsonMap,relIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
+
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    JsonArray nodes = array();
+                    for(Entry<String, String> e: joined.right) {
+                        JsonObject nodeJson = parser.parse(e.getValue()).asObject();
+                        nodes.add(nodeJson);
+                    }
+                    for(Entry<String, String> e: joined.left) {
+                        JsonObject relJson = parser.parse(e.getValue()).asObject();
+                        relJson.put("nodes", nodes);
+                        out.put(e.getKey(), relJson.toString());
+                    }
+
+                    return true;
+                }
+
+            });
+
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile ,e);
+        }
+    }
+
+    private void createRelId2WayJsonMap(String wayIdRelIdMap, String wayIdWayjsonMap, String outputFile) {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(wayIdRelIdMap,wayIdWayjsonMap, new Processor<JoinedEntries, Boolean>() {
+
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    String wayJson = joined.right.get(0).getValue();
+                    for(Entry<String, String> e: joined.left) {
+                        String relId = e.getValue();
+                        out.put(relId, wayJson);
+                    }
+                    return true;
+                }
+
+            });
+
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile ,e);
+        }
+    }
+
+
+    private void createRelId2CompleteJson(String relIdJsonWithNodes, String relIdWayJsonMap, String outputFile) {
+        try (SortingWriter out = sortingWriter(outputFile)) {
+            EntryJoiningIterable.join(relIdJsonWithNodes,relIdWayJsonMap, new Processor<JoinedEntries, Boolean>() {
+
+                @Override
+                public Boolean process(JoinedEntries joined) {
+                    JsonArray ways = array();
+                    for(Entry<String, String> e: joined.right) {
+                        JsonObject wayJson = parser.parse(e.getValue()).asObject();
+                        ways.add(wayJson);
+                    }
+                    for(Entry<String, String> e: joined.left) {
+                        JsonObject relJson = parser.parse(e.getValue()).asObject();
+                        relJson.put("ways", ways);
+                        out.put(e.getKey(), relJson.toString());
+                    }
+                    return true;
+                }
+
+            });
+
+        } catch (IOException e) {
+            throw new IllegalStateException("exception while closing sorted writer " + outputFile ,e);
         }
     }
 
@@ -262,7 +398,9 @@ public class OsmJoin {
         // the output should be a big gzip file with all the nodes, ways, and relations as json blobs on each line. Each blob should have all the stuff it refers embedded.
 
         StopWatch processTimer = StopWatch.time(LOG, "process " + OSM_XML);
-        StopWatch timer = StopWatch.time(LOG, "splitting " +OSM_XML);
+
+        StopWatch timer;
+        timer = StopWatch.time(LOG, "splitting " +OSM_XML);
         splitAndEmit(OSM_XML);
         timer.stop();
 
@@ -270,12 +408,31 @@ public class OsmJoin {
         createWayId2NodeJsonMap(NODE_ID_WAY_ID_MAP, NODE_ID_NODEJSON_MAP, WAY_ID_NODE_JSON_MAP);
         timer.stop();
 
-        processTimer.stop();
+        timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
+        createWayId2CompleteJsonMap(WAY_ID_WAYJSON_MAP, WAY_ID_NODE_JSON_MAP, WAY_ID_COMPLETE_JSON);
+        timer.stop();
 
+        timer = StopWatch.time(LOG, "create " + REL_ID_NODE_JSON_MAP);
+        createRelid2NodeJsonMap(NODE_ID_REL_ID_MAP, NODE_ID_NODEJSON_MAP, REL_ID_NODE_JSON_MAP);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_JSON_WITH_NODES);
+        createRelid2JsonWithNodes(REL_ID_RELJSON_MAP, REL_ID_NODE_JSON_MAP, REL_ID_JSON_WITH_NODES);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_WAY_JSON_MAP);
+        createRelId2WayJsonMap(WAY_ID_REL_ID_MAP, WAY_ID_COMPLETE_JSON, REL_ID_WAY_JSON_MAP);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_COMPLETE_JSON);
+        createRelId2CompleteJson(REL_ID_JSON_WITH_NODES, REL_ID_WAY_JSON_MAP, REL_ID_COMPLETE_JSON);
+        timer.stop();
+
+        processTimer.stop();
     }
 
     public static void main(String[] args) {
-        OsmJoin osmJoin = new OsmJoin("./temp");
+        OsmJoin osmJoin = new OsmJoin("./temp", new JsonParser());
         osmJoin.processAll();
     }
 }
