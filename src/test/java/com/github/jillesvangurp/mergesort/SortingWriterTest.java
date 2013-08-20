@@ -14,7 +14,6 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.google.common.io.Files;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.Iterables;
@@ -34,7 +33,7 @@ public class SortingWriterTest {
     public void shouldSort() throws IOException {
         String outputFile = new File(tempDir,"out.gz").getAbsolutePath();
         ArrayList<String> written = new ArrayList<>();
-        try(SortingWriter sortingWriter = new SortingWriter(tempDir, outputFile, 3)) {
+        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 3)) {
             for(int i=0;i<=1000;i++) {
                 sortingWriter.put("" + i%5, "-");
 
@@ -87,7 +86,7 @@ public class SortingWriterTest {
         };
 
         ArrayList<String> written = new ArrayList<>();
-        try(SortingWriter sortingWriter = new SortingWriter(tempDir, outputFile, 5)) {
+        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 5)) {
             try(ConcurrentProcessingIterable<Integer, Integer> processConcurrently = Iterables.processConcurrently(it, processor, 2, 9, 4)) {
                 for(Integer i: processConcurrently) {
 

@@ -134,6 +134,7 @@ public class SortingWriter implements Closeable {
                 li.close();
             }
             mergeCounter.close();
+            FileUtils.deleteDirectory(new File(tempDir));
         }
     }
 }
