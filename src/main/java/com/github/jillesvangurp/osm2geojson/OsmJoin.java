@@ -397,7 +397,7 @@ public class OsmJoin {
         }
     }
 
-    public void processAll() {
+    public void processAll(String osmxml) {
         // the join process works by parsing the osm xml blob for blob and creating several sorted multi maps as files using SortingWriter
         // these map files are then joined to more complex files in several steps using the EntryJoiningIterable
         // the main idea behind this approach is to not try to fit everything in ram at once and process efficiently by working with sorted files
@@ -407,7 +407,7 @@ public class OsmJoin {
 
         StopWatch timer;
         timer = StopWatch.time(LOG, "splitting " +OSM_XML);
-        splitAndEmit(OSM_XML);
+        splitAndEmit(osmxml);
         timer.stop();
 
         timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
@@ -439,6 +439,7 @@ public class OsmJoin {
 
     public static void main(String[] args) {
         OsmJoin osmJoin = new OsmJoin("./temp", new JsonParser());
-        osmJoin.processAll();
+        String osmxml = args[0];
+        osmJoin.processAll(osmxml);
     }
 }
