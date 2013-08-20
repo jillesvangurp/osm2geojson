@@ -54,6 +54,7 @@ public final class OpenStreetMapBlobIterable implements Iterable<String> {
                     String line;
                     while (it.hasNext() && next == null) {
                         line = it.next();
+                        System.out.println(line);
                         if (line.length() > 0) {
                             if (line.trim().startsWith("<node")) {
                                 buf.delete(0, buf.length());
