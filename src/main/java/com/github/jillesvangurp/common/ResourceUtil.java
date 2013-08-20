@@ -141,7 +141,7 @@ public class ResourceUtil {
     }
 
     public static InputStreamReader bzip2Reader(String fileName) throws IOException, FileNotFoundException {
-        return new InputStreamReader(new BZip2CompressorInputStream(new FileInputStream(fileName)), UTF8);
+        return new InputStreamReader(new BZip2CompressorInputStream(new FileInputStream(fileName),true), UTF8);
     }
 
     public static BufferedReader resource(String resourcePath) throws IOException {

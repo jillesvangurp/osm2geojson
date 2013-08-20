@@ -128,9 +128,6 @@ public class OsmJoin {
 
                                         }
                                     };
-                                    System.out.println("Blob expected here!");
-                                    System.out.println(new PeekableIterator<>(osmIterable).peek());
-                                    System.out.println(".....");
                                     try(ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9, 10000)) {
                                         consume(it);
                                     }
