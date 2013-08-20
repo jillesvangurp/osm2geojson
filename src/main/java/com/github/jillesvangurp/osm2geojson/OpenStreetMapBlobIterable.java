@@ -89,7 +89,6 @@ public final class OpenStreetMapBlobIterable implements Iterable<String> {
                         }
                     }
                     return next != null;
-
                 }
             }
 

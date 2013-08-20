@@ -116,14 +116,12 @@ public class OsmJoin {
                                                 } else if (blob.trim().startsWith("<relation")) {
                                                     parseRelation(relationsWriter, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
                                                 } else {
-                                                    // ignore redundant changeset, bound, and what not
-                                                    return false;
+                                                    LOG.error("unexpected blob type\n" +blob);
+                                                    throw new IllegalStateException("unexpected blob type");
                                                 }
                                                 return true;
-                                            } catch (XPathExpressionException e) {
-                                                throw new IllegalStateException("invalid xpath!",e);
-                                            } catch (SAXException e) {
-                                                LOG.warn("parse error for " + blob);
+                                            } catch(Exception e) {
+                                                LOG.error("unexpected error " + e.getMessage(),e);
                                                 return false;
                                             }
 
