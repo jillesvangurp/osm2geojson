@@ -5,7 +5,6 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -115,17 +114,12 @@ public class SortingWriter implements Closeable {
                 lineIterables.add(LineIterable.openGzipFile(file));
             }
             LOG.info("merging " + lineIterables.size() + " buckets");
-            MergingIterable<String> mergeIt = new MergingIterable<String>(lineIterables, new Comparator<String>() {
 
-                @Override
-                public int compare(String line1, String line2) {
-                    return key(line1).compareTo(key(line2));
-                }
+            MergingEntryIterable mergeIt = new MergingEntryIterable(lineIterables);
 
-            });
             try (BufferedWriter bw = ResourceUtil.gzipFileWriter(output)) {
-                for (String line : mergeIt) {
-                    bw.write(line + '\n');
+                for (Entry<String, String> entry : mergeIt) {
+                    bw.write(entry.toString() + '\n');
                     mergeCounter.inc();
                 }
             }
