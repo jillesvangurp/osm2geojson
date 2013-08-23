@@ -55,7 +55,7 @@ public class OsmJoin {
 
 
     // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
-    private static final int BUCKET_SIZE = 1000000;
+    private static final int BUCKET_SIZE = 500000;
 
     final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
     final Pattern latPattern = Pattern.compile("lat=\"([0-9]+(\\.[0-9]+)?)");
@@ -84,9 +84,9 @@ public class OsmJoin {
         return workDirectory + File.separatorChar + file + ".buckets";
     }
 
-    private SortingWriter sortingWriter(String file) {
+    private SortingWriter sortingWriter(String file, int bucketSize) {
         try {
-            return new SortingWriter(bucketDir(file), file, BUCKET_SIZE);
+            return new SortingWriter(bucketDir(file), file, bucketSize);
         } catch (IOException e) {
             throw new IllegalStateException("cannot create sorting writer " + file);
         }
@@ -96,12 +96,12 @@ public class OsmJoin {
 
         // create various sorted maps that need to be joined in the next steps
 
-        try (SortingWriter nodesWriter = sortingWriter(NODE_ID_NODEJSON_MAP)) {
-            try (SortingWriter nodeid2WayidWriter = sortingWriter(NODE_ID_WAY_ID_MAP)) {
-                try (SortingWriter waysWriter = sortingWriter(WAY_ID_WAYJSON_MAP)) {
-                    try (SortingWriter relationsWriter = sortingWriter(REL_ID_RELJSON_MAP)) {
-                        try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP)) {
-                            try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP)) {
+        try (SortingWriter nodesWriter = sortingWriter(NODE_ID_NODEJSON_MAP, BUCKET_SIZE)) {
+            try (SortingWriter nodeid2WayidWriter = sortingWriter(NODE_ID_WAY_ID_MAP, BUCKET_SIZE)) {
+                try (SortingWriter waysWriter = sortingWriter(WAY_ID_WAYJSON_MAP, BUCKET_SIZE)) {
+                    try (SortingWriter relationsWriter = sortingWriter(REL_ID_RELJSON_MAP, BUCKET_SIZE)) {
+                        try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP, BUCKET_SIZE)) {
+                            try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP, BUCKET_SIZE)) {
                                 try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile))) {
                                     OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
 
@@ -248,7 +248,7 @@ public class OsmJoin {
     }
 
     void createWayId2NodeJsonMap(String nodeId2wayIdFile, String nodeId2nodeJsonFile, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
             EntryJoiningIterable.join(nodeId2nodeJsonFile,nodeId2wayIdFile, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -268,7 +268,7 @@ public class OsmJoin {
     }
 
     private void createWayId2CompleteJsonMap(String wayIdWayjsonMap, String wayIdNodeJsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
             EntryJoiningIterable.join(wayIdWayjsonMap,wayIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -303,7 +303,7 @@ public class OsmJoin {
     }
 
     private void createRelid2NodeJsonMap(String nodeIdRelIdMap, String nodeIdNodejsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
             EntryJoiningIterable.join(nodeIdRelIdMap,nodeIdNodejsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -325,7 +325,7 @@ public class OsmJoin {
     }
 
     private void createRelid2JsonWithNodes(String relIdReljsonMap, String relIdNodeJsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
             EntryJoiningIterable.join(relIdReljsonMap,relIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -352,7 +352,7 @@ public class OsmJoin {
     }
 
     private void createRelId2WayJsonMap(String wayIdRelIdMap, String wayIdWayjsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
             EntryJoiningIterable.join(wayIdRelIdMap,wayIdWayjsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -374,7 +374,7 @@ public class OsmJoin {
 
 
     private void createRelId2CompleteJson(String relIdJsonWithNodes, String relIdWayJsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile)) {
+        try (SortingWriter out = sortingWriter(outputFile, 10000)) {
             EntryJoiningIterable.join(relIdJsonWithNodes,relIdWayJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
