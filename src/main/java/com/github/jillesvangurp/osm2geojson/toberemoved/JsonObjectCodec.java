@@ -19,7 +19,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMapCodec;
 import com.github.jsonj.JsonObject;

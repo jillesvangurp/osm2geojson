@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;

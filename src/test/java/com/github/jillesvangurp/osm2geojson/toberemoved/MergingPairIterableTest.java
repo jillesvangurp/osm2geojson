@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import static java.util.Arrays.asList;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -10,6 +10,8 @@ import java.util.List;
 
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+
+import com.github.jillesvangurp.osm2geojson.toberemoved.MergingPairIterable;
 
 @Test
 public class MergingPairIterableTest {

@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
@@ -11,6 +11,7 @@ import java.util.Arrays;
 import org.apache.commons.lang.StringUtils;
 import org.testng.annotations.Test;
 
+import com.github.jillesvangurp.osm2geojson.toberemoved.OsmProcessor;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonObject;
 import com.jillesvangurp.geo.GeoGeometry;

@@ -6,6 +6,8 @@ import java.util.List;
 
 import org.apache.commons.lang.Validate;
 
+import com.github.jillesvangurp.osm2geojson.toberemoved.MergingPairIterable;
+
 
 /**
  * Merges a list of sorted iterables.

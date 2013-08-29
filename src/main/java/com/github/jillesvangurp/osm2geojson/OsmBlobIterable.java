@@ -30,11 +30,11 @@ import com.jillesvangurp.iterables.LineIterable;
  * Iterates over the open street map xml and yields one parseable node, way, or relation xml string blob each time next
  * is called. Using this class, you can use a simple for loop to loop over the xml.
  */
-public final class OpenStreetMapBlobIterable implements Iterable<String> {
+public final class OsmBlobIterable implements Iterable<String> {
 
     private final LineIterable lineIterable;
 
-    public OpenStreetMapBlobIterable(LineIterable lineIterable) {
+    public OsmBlobIterable(LineIterable lineIterable) {
         this.lineIterable = lineIterable;
     }
 

@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.mergesort;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;

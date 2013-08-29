@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import java.util.Comparator;
 import java.util.Iterator;

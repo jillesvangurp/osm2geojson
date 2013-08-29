@@ -103,7 +103,7 @@ public class OsmJoin {
                         try (SortingWriter nodeId2RelIdWriter = sortingWriter(NODE_ID_REL_ID_MAP, BUCKET_SIZE)) {
                             try (SortingWriter wayId2RelIdWriter = sortingWriter(WAY_ID_REL_ID_MAP, BUCKET_SIZE)) {
                                 try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile))) {
-                                    OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
+                                    OsmBlobIterable osmIterable = new OsmBlobIterable(lineIterable);
 
                                     Processor<String, Boolean> processor = new Processor<String, Boolean>() {
 

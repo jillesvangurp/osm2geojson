@@ -19,7 +19,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.osm2geojson.toberemoved;
 
 import static com.github.jsonj.tools.JsonBuilder.array;
 import static com.github.jsonj.tools.JsonBuilder.object;
@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.osm2geojson.OsmBlobIterable;
 import com.github.jillesvangurp.persistentcachingmap.PersistentCachingMap;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
@@ -139,7 +140,7 @@ public class OsmProcessor {
             final PersistentCachingMap<Long, JsonObject> relationKv, String osmXml) {
 
         try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmXml));) {
-            OpenStreetMapBlobIterable osmIterable = new OpenStreetMapBlobIterable(lineIterable);
+            OsmBlobIterable osmIterable = new OsmBlobIterable(lineIterable);
 
             Processor<String, String> processor = new OsmBlobProcessor(nodeKv, relationKv, wayKv);
 
