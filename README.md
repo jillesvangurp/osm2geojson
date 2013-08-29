@@ -86,11 +86,11 @@ The current format is a near unusable database dump that in its current form ass
 
 Should anybody involved with OSM care about my recommendations, I would recommend the following:
 
-1 Evolve internal storage towards a denormalized view of the world. My recent experience indicates that a document store combined with powerful indexing such as provided by Elasticsearch might be more appropriate than database lookups and joins. Also the raw compressed bzip xml is only a few GB smaller than the joined json equivalent. This makes you wonder what purpose storing the data like that serves. Any reasonable use of the data in a relational store involves doing lots of joins in any case and any processing of the data takes hours simply because of the way the data is stored. A pre joined data set is much more efficient to use.
-1 Introduce a standardized categorization that is validated. Apply this categorization in an automated fashion to all data and deprecate the use of free form tags in OSM applications.
-1 Crosslink the data with other data sets. For example embedding geoname ids, woe_ids, wikipedia links, etc. would be hugely valuable. Cross linking with e.g. Facebook's opengraph would be enormously valuable as well. Unlike embedding the meta data, linking the data should be safer from a legal point of view.
-1 Eliminate region specific variations of combinations of tags as much as possible
-1 Introduce a standardized address format. See also relevant work regarding this in W3C and other open data groups.
-1 Standardize naming of things and align with geonames and geoplanet on things like language codes, name translations, etc.
+* Evolve internal storage towards a denormalized view of the world. My recent experience indicates that a document store combined with powerful indexing such as provided by Elasticsearch might be more appropriate than database lookups and joins. Also the raw compressed bzip xml is only a few GB smaller than the joined json equivalent. This makes you wonder what purpose storing the data like that serves. Any reasonable use of the data in a relational store involves doing lots of joins in any case and any processing of the data takes hours simply because of the way the data is stored. A pre joined data set is much more efficient to use.
+* Introduce a standardized categorization that is validated. Apply this categorization in an automated fashion to all data and deprecate the use of free form tags in OSM applications.
+* Crosslink the data with other data sets. For example embedding geoname ids, woe_ids, wikipedia links, etc. would be hugely valuable. Cross linking with e.g. Facebook's opengraph would be enormously valuable as well. Unlike embedding the meta data, linking the data should be safer from a legal point of view.
+* Eliminate region specific variations of combinations of tags as much as possible
+* Introduce a standardized address format. See also relevant work regarding this in W3C and other open data groups.
+* Standardize naming of things and align with geonames and geoplanet on things like language codes, name translations, etc.
 
 This is a massive undertaking but would make curating OSM more rewarding for contributors and open up applications of its data beyond rendering map tiles.
