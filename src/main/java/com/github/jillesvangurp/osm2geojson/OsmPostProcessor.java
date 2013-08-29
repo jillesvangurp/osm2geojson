@@ -11,7 +11,11 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.util.Map.Entry;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.metrics.LoggingCounter;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
@@ -26,6 +30,9 @@ import com.jillesvangurp.iterables.Processor;
  *
  */
 public class OsmPostProcessor {
+    private static final Logger LOG = LoggerFactory.getLogger(OsmPostProcessor.class);
+
+
     private static final String OSM_POIS_GZ = "osm-pois.gz";
     private static final String OSM_WAYS_GZ = "osm-ways.gz";
     private static final String OSM_RELATIONS_GZ = "osm-relations.gz";
@@ -39,7 +46,7 @@ public class OsmPostProcessor {
     }
 
     private void processNodes() {
-        try {
+        try (LoggingCounter counter = LoggingCounter.counter(LOG, "process ways", "ways", 100000)) {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.NODE_ID_NODEJSON_MAP);
             try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_POIS_GZ)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
@@ -59,7 +66,7 @@ public class OsmPostProcessor {
                                     _("geometry",geometry)
                             );
                             geoJson = interpretTags(input, geoJson);
-
+                            counter.inc();
                             return  geoJson;
                         }
                         return null;
@@ -81,7 +88,7 @@ public class OsmPostProcessor {
     }
 
     private void processWays() {
-        try {
+        try(LoggingCounter counter = LoggingCounter.counter(LOG, "process ways", "ways", 100000)) {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.WAY_ID_COMPLETE_JSON);
             try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_WAYS_GZ)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
@@ -100,7 +107,7 @@ public class OsmPostProcessor {
                                 _("geometry",geometry)
                         );
                         geoJson = interpretTags(input, geoJson);
-
+                        counter.inc();
                         return  geoJson;
                     }
 
