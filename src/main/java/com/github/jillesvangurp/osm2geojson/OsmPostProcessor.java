@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import com.github.jillesvangurp.common.ResourceUtil;
 import com.github.jillesvangurp.metrics.LoggingCounter;
+import com.github.jillesvangurp.metrics.StopWatch;
 import com.github.jsonj.JsonArray;
 import com.github.jsonj.JsonElement;
 import com.github.jsonj.JsonObject;
@@ -291,9 +292,11 @@ public class OsmPostProcessor {
     }
 
     public static void main(String[] args) {
+        StopWatch stopWatch = StopWatch.time(LOG, "post process osm");
         OsmPostProcessor processor = new OsmPostProcessor(new JsonParser());
         processor.processNodes();
         processor.processWays();
+        stopWatch.stop();
     }
 
     private static final class NodeJsonParsingProcessor implements Processor<Entry<String, String>, JsonObject> {
