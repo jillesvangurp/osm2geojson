@@ -47,7 +47,7 @@ public class OsmPostProcessor {
     }
 
     private void processNodes() {
-        try (LoggingCounter counter = LoggingCounter.counter(LOG, "process ways", "ways", 100000)) {
+        try (LoggingCounter counter = LoggingCounter.counter(LOG, "process nodes", "nodes", 100000)) {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.NODE_ID_NODEJSON_MAP);
             try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_POIS_GZ)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
