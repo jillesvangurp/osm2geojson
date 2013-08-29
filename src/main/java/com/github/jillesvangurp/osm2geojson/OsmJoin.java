@@ -36,7 +36,7 @@ import com.jillesvangurp.iterables.Processor;
 public class OsmJoin {
     private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
 
-    private static final String NODE_ID_NODEJSON_MAP = "nodeid2rawnodejson.gz";
+    public static final String NODE_ID_NODEJSON_MAP = "nodeid2rawnodejson.gz";
     private static final String REL_ID_RELJSON_MAP = "relid2rawreljson.gz";
     private static final String WAY_ID_WAYJSON_MAP = "wayid2rawwayjson.gz";
     private static final String NODE_ID_WAY_ID_MAP = "nodeid2wayid.gz";
@@ -45,13 +45,13 @@ public class OsmJoin {
 
     private static final String WAY_ID_NODE_JSON_MAP = "wayid2nodejson.gz";
 
-    private static final String WAY_ID_COMPLETE_JSON = "wqyid2completejson.gz";
+    public static final String WAY_ID_COMPLETE_JSON = "wqyid2completejson.gz";
 
     private static final String REL_ID_NODE_JSON_MAP = "relid2nodejson.gz";
     private static final String REL_ID_JSON_WITH_NODES = "relid2jsonwithnodes.gz";
 
     private static final String REL_ID_WAY_JSON_MAP = "relid2wayjson.gz";
-    private static final String REL_ID_COMPLETE_JSON = "relid2completejson.gz";
+    public static final String REL_ID_COMPLETE_JSON = "relid2completejson.gz";
 
 
     // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
@@ -138,7 +138,7 @@ public class OsmJoin {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new IllegalStateException(e);
         }
     }
 
@@ -268,7 +268,8 @@ public class OsmJoin {
     }
 
     private void createWayId2CompleteJsonMap(String wayIdWayjsonMap, String wayIdNodeJsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
+        // json blobs are quite big, so reducing bucket size
+        try (SortingWriter out = sortingWriter(outputFile, 100000)) {
             EntryJoiningIterable.join(wayIdWayjsonMap,wayIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -303,7 +304,7 @@ public class OsmJoin {
     }
 
     private void createRelid2NodeJsonMap(String nodeIdRelIdMap, String nodeIdNodejsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
+        try (SortingWriter out = sortingWriter(outputFile, 10000)) {
             EntryJoiningIterable.join(nodeIdRelIdMap,nodeIdNodejsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -325,7 +326,7 @@ public class OsmJoin {
     }
 
     private void createRelid2JsonWithNodes(String relIdReljsonMap, String relIdNodeJsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
+        try (SortingWriter out = sortingWriter(outputFile, 100000)) {
             EntryJoiningIterable.join(relIdReljsonMap,relIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -352,7 +353,7 @@ public class OsmJoin {
     }
 
     private void createRelId2WayJsonMap(String wayIdRelIdMap, String wayIdWayjsonMap, String outputFile) {
-        try (SortingWriter out = sortingWriter(outputFile, BUCKET_SIZE)) {
+        try (SortingWriter out = sortingWriter(outputFile, 100000)) {
             EntryJoiningIterable.join(wayIdRelIdMap,wayIdWayjsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -374,6 +375,7 @@ public class OsmJoin {
 
 
     private void createRelId2CompleteJson(String relIdJsonWithNodes, String relIdWayJsonMap, String outputFile) {
+        // relations can be extremely large, so reduce bucket size even further
         try (SortingWriter out = sortingWriter(outputFile, 10000)) {
             EntryJoiningIterable.join(relIdJsonWithNodes,relIdWayJsonMap, new Processor<JoinedEntries, Boolean>() {
 
