@@ -7,6 +7,7 @@ import static com.jillesvangurp.iterables.Iterables.consume;
 import static com.jillesvangurp.iterables.Iterables.map;
 import static com.jillesvangurp.iterables.Iterables.processConcurrently;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
@@ -105,31 +106,38 @@ public class OsmJoin {
                                 try (LineIterable lineIterable = new LineIterable(ResourceUtil.bzip2Reader(osmFile))) {
                                     OsmBlobIterable osmIterable = new OsmBlobIterable(lineIterable);
 
-                                    Processor<String, Boolean> processor = new Processor<String, Boolean>() {
+                                    try (BufferedWriter problemNodes = ResourceUtil.gzipFileWriter("problemNodes.gz")) {
+                                        try (BufferedWriter problemWays = ResourceUtil.gzipFileWriter("problemWays.gz")) {
+                                            try (BufferedWriter problemRelations = ResourceUtil.gzipFileWriter("problemRelations.gz")) {
+                                                Processor<String, Boolean> processor = new Processor<String, Boolean>() {
 
-                                        @Override
-                                        public Boolean process(String blob) {
-                                            try {
-                                                if (blob.trim().startsWith("<node")) {
-                                                    parseNode(nodesWriter, blob);
-                                                } else if (blob.trim().startsWith("<way")) {
-                                                    parseWay(waysWriter, nodeid2WayidWriter, blob);
-                                                } else if (blob.trim().startsWith("<relation")) {
-                                                    parseRelation(relationsWriter, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
-                                                } else {
-                                                    LOG.error("unexpected blob type\n" +blob);
-                                                    throw new IllegalStateException("unexpected blob type");
+                                                    @Override
+                                                    public Boolean process(String blob) {
+                                                        try {
+                                                            if (blob.trim().startsWith("<node")) {
+                                                                parseNode(nodesWriter,problemNodes, blob);
+                                                            } else if (blob.trim().startsWith("<way")) {
+                                                                parseWay(waysWriter,problemWays, nodeid2WayidWriter, blob);
+                                                            } else if (blob.trim().startsWith("<relation")) {
+                                                                parseRelation(relationsWriter,problemRelations, nodeId2RelIdWriter, wayId2RelIdWriter, blob);
+                                                            } else {
+                                                                LOG.error("unexpected blob type\n" + blob);
+                                                                throw new IllegalStateException("unexpected blob type");
+                                                            }
+                                                            return true;
+                                                        } catch (Exception e) {
+                                                            LOG.error("unexpected error " + e.getMessage(), e);
+                                                            return false;
+                                                        }
+
+                                                    }
+                                                };
+                                                try (ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9,
+                                                        10000)) {
+                                                    consume(it);
                                                 }
-                                                return true;
-                                            } catch(Exception e) {
-                                                LOG.error("unexpected error " + e.getMessage(),e);
-                                                return false;
                                             }
-
                                         }
-                                    };
-                                    try(ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9, 10000)) {
-                                        consume(it);
                                     }
                                 }
                             }
@@ -142,7 +150,7 @@ public class OsmJoin {
         }
     }
 
-    private void parseNode(SortingWriter nodeWriter, String input) throws XPathExpressionException, SAXException {
+    private void parseNode(SortingWriter nodeWriter, BufferedWriter problemNodes, String input) throws XPathExpressionException, SAXException, IOException {
         Matcher idm = idPattern.matcher(input);
         Matcher latm = latPattern.matcher(input);
         Matcher lonm = lonPattern.matcher(input);
@@ -165,14 +173,15 @@ public class OsmJoin {
                 nodeWriter.put("" + id, node.toString());
             } else {
                 // ignore nodes without coordinates (apparently they exist), don't flood the logs
+                problemNodes.write(input+'\n');
             }
 
         } else {
-            LOG.warn("no id");
+            problemNodes.write(input+'\n');
         }
     }
 
-    private void parseWay(SortingWriter waysWriter, SortingWriter nodeid2WayidWriter, String input) throws XPathExpressionException, SAXException {
+    private void parseWay(SortingWriter waysWriter, BufferedWriter problemWays, SortingWriter nodeid2WayidWriter, String input) throws XPathExpressionException, SAXException, IOException {
 
         Matcher idm = idPattern.matcher(input);
         Matcher kvm = kvPattern.matcher(input);
@@ -197,10 +206,13 @@ public class OsmJoin {
             }
             way.put("ns", nodeRefs);
             waysWriter.put("" + wayId, way.toString());
+        } else {
+            problemWays.write(input+'\n');
+
         }
     }
 
-    private void parseRelation(SortingWriter relationsWriter, SortingWriter nodeId2RelIdWriter, SortingWriter wayId2RelIdWriter, String input) throws XPathExpressionException, SAXException {
+    private void parseRelation(SortingWriter relationsWriter, BufferedWriter problemRelations, SortingWriter nodeId2RelIdWriter, SortingWriter wayId2RelIdWriter, String input) throws XPathExpressionException, SAXException, IOException {
         Matcher idm = idPattern.matcher(input);
         Matcher kvm = kvPattern.matcher(input);
         Matcher mm = memberPattern.matcher(input);
@@ -228,10 +240,16 @@ public class OsmJoin {
                 } else if ("node".equalsIgnoreCase(type)) {
                     members.add(object().put("id",ref).put("type", type).put("role", role).get());
                     nodeId2RelIdWriter.put(""+ref, ""+relationId);
+                } else  if ("relation".equalsIgnoreCase(type)) {
+                    // FIXME support relation members as well
+                } else {
+                    LOG.warn("unknown member type " + type);
                 }
             }
             relation.put("members", members);
             relationsWriter.put(""+relationId, relation.toString());
+        } else {
+            problemRelations.write(input + '\n');
         }
     }
 
@@ -269,7 +287,7 @@ public class OsmJoin {
 
     private void createWayId2CompleteJsonMap(String wayIdWayjsonMap, String wayIdNodeJsonMap, String outputFile) {
         // json blobs are quite big, so reducing bucket size
-        try (SortingWriter out = sortingWriter(outputFile, 100000)) {
+        try (SortingWriter out = sortingWriter(outputFile, 50000)) {
             EntryJoiningIterable.join(wayIdWayjsonMap,wayIdNodeJsonMap, new Processor<JoinedEntries, Boolean>() {
 
                 @Override
@@ -295,7 +313,6 @@ public class OsmJoin {
                     out.put(wayEntry.getKey(), way.toString());
                     return true;
                 }
-
             });
 
         } catch (IOException e) {
