@@ -57,11 +57,15 @@ public class SortingWriter implements Closeable {
         }
         bucketLock.readLock().lock();
         try {
-            bucket.put(key, value);
+            boolean added = bucket.put(key, value);
+            if(!added) {
+                LOG.warn("failed to add " +key+";"+value);
+            } else {
+                loggingCounter.inc();
+            }
         } finally {
             bucketLock.readLock().unlock();
         }
-        loggingCounter.inc();
     }
 
     private void flushBucket(boolean skipSizeCheck) {

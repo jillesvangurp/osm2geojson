@@ -1,5 +1,7 @@
 package com.github.jillesvangurp.mergesort;
 
+import static com.jillesvangurp.iterables.Iterables.consume;
+import static com.jillesvangurp.iterables.Iterables.count;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
@@ -8,8 +10,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.RandomStringUtils;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -60,7 +64,7 @@ public class SortingWriterTest {
 
 
         Iterable<Integer> it = Iterables.toIterable(new Iterator<Integer>() {
-            int max=30;
+            int max=30000;
             int current=0;
 
             @Override
@@ -77,33 +81,47 @@ public class SortingWriterTest {
             public void remove() {
                 throw new UnsupportedOperationException();
             }});
-        Processor<Integer,Integer> processor = new Processor<Integer,Integer>() {
 
-            @Override
-            public Integer process(Integer input) {
-                return input;
-            }
-        };
 
-        ArrayList<String> written = new ArrayList<>();
-        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 5)) {
-            try(ConcurrentProcessingIterable<Integer, Integer> processConcurrently = Iterables.processConcurrently(it, processor, 2, 9, 4)) {
-                for(Integer i: processConcurrently) {
+        final CopyOnWriteArrayList<String> written = new CopyOnWriteArrayList<>();
+        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 50)) {
+            Processor<Integer,Integer> processor = new Processor<Integer,Integer>() {
 
+                @Override
+                public Integer process(Integer i) {
                     sortingWriter.put("" + i%5, ""+i);
                     written.add(""+i%5+";"+i);
+                    return i;
                 }
+            };
+            try(ConcurrentProcessingIterable<Integer, Integer> processConcurrently = Iterables.processConcurrently(it, processor, 2, 50, 4)) {
+                consume(processConcurrently);
             }
         }
-        Collections.sort(written);
+        ArrayList<String> copy = new ArrayList<>(written);
+        Collections.sort(copy);
         ArrayList<String> read = readItems(outputFile);
-        assertThat(read.size(), is(written.size()));
-        for(int i=0; i<written.size();i++) {
+        assertThat(read.size(), is(copy.size()));
+        for(int i=0; i<copy.size();i++) {
             String keyR = read.get(i).split(";")[0];
-            String keyW = written.get(i).split(";")[0];
+            String keyW = copy.get(i).split(";")[0];
             // note values might be in different order but should be sorted by key
             assertThat(keyR, is(keyW));
         }
+    }
+
+    public void shouldNotLoseEntries() throws IOException {
+        String outputFile = new File(tempDir,"out.gz").getAbsolutePath();
+
+        long lines = 20000;
+        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 1000)) {
+            for(int i=0; i< lines;i++) {
+                String key = RandomStringUtils.randomAlphanumeric(2); // should cause some duplicate keys
+                String value = RandomStringUtils.randomAlphanumeric(200);
+                sortingWriter.put(key, value);
+            }
+        }
+        assertThat(count(LineIterable.openGzipFile(outputFile)),is(lines));
     }
 
     @AfterMethod
