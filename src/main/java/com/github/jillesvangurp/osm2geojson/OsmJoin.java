@@ -46,7 +46,7 @@ public class OsmJoin {
 
     private static final String WAY_ID_NODE_JSON_MAP = "wayid2nodejson.gz";
 
-    public static final String WAY_ID_COMPLETE_JSON = "wqyid2completejson.gz";
+    public static final String WAY_ID_COMPLETE_JSON = "wayid2completejson.gz";
 
     private static final String REL_ID_NODE_JSON_MAP = "relid2nodejson.gz";
     private static final String REL_ID_JSON_WITH_NODES = "relid2jsonwithnodes.gz";
@@ -58,12 +58,12 @@ public class OsmJoin {
     // choose a bucket size that will fit in memory. Larger means less bucket files and more ram are used.
     private static final int BUCKET_SIZE = 500000;
 
-    final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
-    final Pattern latPattern = Pattern.compile("lat=\"([0-9]+(\\.[0-9]+)?)");
-    final Pattern lonPattern = Pattern.compile("lon=\"([0-9]+(\\.[0-9]+)?)");
-    final Pattern kvPattern = Pattern.compile("k=\"(.*?)\"\\s+v=\"(.*?)\"");
-    final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
-    final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
+    static final Pattern idPattern = Pattern.compile("id=\"([0-9]+)");
+    static final Pattern latPattern = Pattern.compile("lat=\"(-?[0-9]+(\\.[0-9]+)?)");
+    static final Pattern lonPattern = Pattern.compile("lon=\"(-?[0-9]+(\\.[0-9]+)?)");
+    static final Pattern kvPattern = Pattern.compile("k=\"(.*?)\"\\s+v=\"(.*?)\"");
+    static final Pattern ndPattern = Pattern.compile("nd ref=\"([0-9]+)");
+    static final Pattern memberPattern = Pattern.compile("member type=\"(.*?)\" ref=\"([0-9]+)\" role=\"(.*?)\"");
 
 //    private static final String OSM_XML = "/Users/jilles/data/brandenburg.osm.bz2";
 
@@ -132,7 +132,7 @@ public class OsmJoin {
 
                                                     }
                                                 };
-                                                try (ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000, 9,
+                                                try (ConcurrentProcessingIterable<String, Boolean> it = processConcurrently(osmIterable, processor, 1000,    9,
                                                         10000)) {
                                                     consume(it);
                                                 }
@@ -427,33 +427,33 @@ public class OsmJoin {
         StopWatch processTimer = StopWatch.time(LOG, "process " + osmxml);
 
         StopWatch timer;
-//        timer = StopWatch.time(LOG, "splitting " +osmxml);
-//        splitAndEmit(osmxml);
-//        timer.stop();
-//
-//        timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
-//        createWayId2NodeJsonMap(NODE_ID_WAY_ID_MAP, NODE_ID_NODEJSON_MAP, WAY_ID_NODE_JSON_MAP);
-//        timer.stop();
+        timer = StopWatch.time(LOG, "splitting " +osmxml);
+        splitAndEmit(osmxml);
+        timer.stop();
+
+        timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
+        createWayId2NodeJsonMap(NODE_ID_WAY_ID_MAP, NODE_ID_NODEJSON_MAP, WAY_ID_NODE_JSON_MAP);
+        timer.stop();
 
         timer=StopWatch.time(LOG, "create "+WAY_ID_NODE_JSON_MAP);
         createWayId2CompleteJsonMap(WAY_ID_WAYJSON_MAP, WAY_ID_NODE_JSON_MAP, WAY_ID_COMPLETE_JSON);
         timer.stop();
 
-//        timer = StopWatch.time(LOG, "create " + REL_ID_NODE_JSON_MAP);
-//        createRelid2NodeJsonMap(NODE_ID_REL_ID_MAP, NODE_ID_NODEJSON_MAP, REL_ID_NODE_JSON_MAP);
-//        timer.stop();
-//
-//        timer = StopWatch.time(LOG, "create " + REL_ID_JSON_WITH_NODES);
-//        createRelid2JsonWithNodes(REL_ID_RELJSON_MAP, REL_ID_NODE_JSON_MAP, REL_ID_JSON_WITH_NODES);
-//        timer.stop();
-//
-//        timer = StopWatch.time(LOG, "create " + REL_ID_WAY_JSON_MAP);
-//        createRelId2WayJsonMap(WAY_ID_REL_ID_MAP, WAY_ID_COMPLETE_JSON, REL_ID_WAY_JSON_MAP);
-//        timer.stop();
-//
-//        timer = StopWatch.time(LOG, "create " + REL_ID_COMPLETE_JSON);
-//        createRelId2CompleteJson(REL_ID_JSON_WITH_NODES, REL_ID_WAY_JSON_MAP, REL_ID_COMPLETE_JSON);
-//        timer.stop();
+        timer = StopWatch.time(LOG, "create " + REL_ID_NODE_JSON_MAP);
+        createRelid2NodeJsonMap(NODE_ID_REL_ID_MAP, NODE_ID_NODEJSON_MAP, REL_ID_NODE_JSON_MAP);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_JSON_WITH_NODES);
+        createRelid2JsonWithNodes(REL_ID_RELJSON_MAP, REL_ID_NODE_JSON_MAP, REL_ID_JSON_WITH_NODES);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_WAY_JSON_MAP);
+        createRelId2WayJsonMap(WAY_ID_REL_ID_MAP, WAY_ID_COMPLETE_JSON, REL_ID_WAY_JSON_MAP);
+        timer.stop();
+
+        timer = StopWatch.time(LOG, "create " + REL_ID_COMPLETE_JSON);
+        createRelId2CompleteJson(REL_ID_JSON_WITH_NODES, REL_ID_WAY_JSON_MAP, REL_ID_COMPLETE_JSON);
+        timer.stop();
 
         processTimer.stop();
     }
