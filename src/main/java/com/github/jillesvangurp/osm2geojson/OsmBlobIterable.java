@@ -24,6 +24,8 @@ package com.github.jillesvangurp.osm2geojson;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
+import org.apache.commons.lang.StringUtils;
+
 import com.jillesvangurp.iterables.LineIterable;
 
 /**
@@ -55,36 +57,37 @@ public final class OsmBlobIterable implements Iterable<String> {
                     while (it.hasNext() && next == null) {
                         line = it.next();
                         if (line.length() > 0) {
-                            if (line.trim().startsWith("<node")) {
+                            String stripped=StringUtils.strip(line);
+                            if (stripped.startsWith("<node")) {
                                 buf.delete(0, buf.length());
                                 buf.append(line);
-                                if (!fastEndsWith(line, "/>")) {
-                                    while (!fastEndsWith(line.trim(), "</node>")) {
+                                if (!fastEndsWith(stripped, "/>")) {
+                                    while (!fastEndsWith(StringUtils.strip(line), "</node>")) {
                                         line = it.next();
                                         buf.append(line);
                                     }
                                 }
-                                next = buf.toString().trim();
-                            } else if (line.trim().startsWith("<way")) {
+                                next = StringUtils.strip(buf.toString());
+                            } else if (stripped.startsWith("<way")) {
                                 buf.delete(0, buf.length());
                                 buf.append(line);
                                 if (!fastEndsWith(line, "/>")) {
-                                    while (!fastEndsWith(line.trim(), "</way>")) {
+                                    while (!fastEndsWith(StringUtils.strip(line), "</way>")) {
                                         line = it.next();
                                         buf.append(line);
                                     }
                                 }
-                                next = buf.toString().trim();
-                            } else if (line.trim().startsWith("<relation")) {
+                                next = StringUtils.strip(buf.toString());
+                            } else if (stripped.startsWith("<relation")) {
                                 buf.delete(0, buf.length());
                                 buf.append(line);
                                 if (!fastEndsWith(line, "/>")) {
-                                    while (!fastEndsWith(line.trim(), "</relation>")) {
+                                    while (!fastEndsWith(StringUtils.strip(line), "</relation>")) {
                                         line = it.next();
                                         buf.append(line);
                                     }
                                 }
-                                next = buf.toString().trim();
+                                next = StringUtils.strip(buf.toString());
                             }
                         }
                     }
