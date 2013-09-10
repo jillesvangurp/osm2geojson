@@ -13,7 +13,7 @@ This project merges the three into json blobs that have all the relevant informa
 
 OsmJoin is the tool that joins the osm nodes, ways, and relations into more usable json equivalents. No attempt is made to filter the data and all tags are preserved.
 
-This tool currently does not yet produce geojson. A separate tool that takes the output of OsmJoin and procuces geojson will be added later. The latter tool requires interpreting the meaning of tags in OSM, which given inconsistencies and ambiguities is hardly an exact science.
+A separate tool that takes the output of OsmJoin and procuces geojson is provided as well (see OsmPostProcess below). The latter tool requires interpreting the meaning of tags in OSM, which given inconsistencies and ambiguities is hardly an exact science.
 
 ## Installation and use
 
@@ -31,18 +31,20 @@ While running, the tool produces various .gz files with id, json pairs or id,id 
 
 I've provided a list of the different files that are generated:
 
-    -rw-r--r-- 1 localstream root  14G Aug 23 06:43 nodeid2rawnodejson.gz
-    -rw-r--r-- 1 localstream root  13M Aug 23 04:23 nodeid2relid.gz
-    -rw-r--r-- 1 localstream root 7.9G Aug 23 05:50 nodeid2wayid.gz
-    -rw-r--r-- 1 localstream root 1.1G Aug 23 11:09 relid2completejson.gz
-    -rw-r--r-- 1 localstream root 103M Aug 23 09:55 relid2jsonwithnodes.gz
-    -rw-r--r-- 1 localstream root  57M Aug 23 09:54 relid2nodejson.gz
-    -rw-r--r-- 1 localstream root 159M Aug 23 04:24 relid2rawreljson.gz
-    -rw-r--r-- 1 localstream root 3.4G Aug 23 10:17 relid2wayjson.gz
-    -rw-r--r-- 1 localstream root  14G Aug 23 08:15 wayid2nodejson.gz
-    -rw-r--r-- 1 localstream root 9.2G Aug 23 04:56 wayid2rawwayjson.gz
-    -rw-r--r-- 1 localstream root  77M Aug 23 04:23 wayid2relid.gz
-    -rw-r--r-- 1 localstream root  15G Aug 23 09:46 wqyid2completejson.gz 
+    -rw-r--r-- 1 localstream root 410M Sep 10 13:27 adrress_nodes.gz
+    -rw-r--r-- 1 localstream root  26G Sep  5 21:58 nodeid2rawnodejson.gz
+    -rw-r--r-- 1 localstream root  13M Sep  5 18:49 nodeid2relid.gz
+    -rw-r--r-- 1 localstream root 7.9G Sep  5 20:20 nodeid2wayid.gz
+    -rw-r--r-- 1 localstream root 1.3G Sep  6 05:07 relid2completejson.gz
+    -rw-r--r-- 1 localstream root 141M Sep  6 04:17 relid2jsonwithnodes.gz
+    -rw-r--r-- 1 localstream root  81M Sep  6 04:16 relid2nodejson.gz
+    -rw-r--r-- 1 localstream root 161M Sep  5 18:50 relid2rawreljson.gz
+    -rw-r--r-- 1 localstream root 5.8G Sep  6 04:57 relid2wayjson.gz
+    -rw-r--r-- 1 localstream root  28G Sep  6 04:01 wayid2completejson.gz
+    -rw-r--r-- 1 localstream root  25G Sep  6 01:01 wayid2nodejson.gz
+    -rw-r--r-- 1 localstream root 9.3G Sep  5 19:23 wayid2rawwayjson.gz
+    -rw-r--r-- 1 localstream root  78M Sep  5 18:49 wayid2relid.gz
+    -rw-r--r-- 1 localstream root   20 Sep  5 12:06 wqyid2completejson.gz
     
 You should expect to use a bit more than twice the total space of these files. So, somewhere around 100GB of free space should be sufficient for the planet osm file, temp directory with bucket files and the generated gz files.    
 
@@ -66,7 +68,9 @@ A smaller bucketSize means less memory is used. However, this also means more fi
 
 The goal of this step is to take the output files of OsmJoin and filter, transform, and normalize into GeoJson for the purpose of indexing it in elastic search. 
 
-The process involves interpreting what the OSM tags mean, categorizing, reconstructing polygons, linestrings, etc., and filtering out the stuff that cannot be easily categorized. Inevitably this step is lossy. Currently, relations are not processed for reasons of complexity and limited amount of data (only a few hundred thousand relations exist). A preliminary break down based on grepping through the file suggests that the following can be recovered from relations:
+The process involves interpreting what the OSM tags mean, categorizing, reconstructing polygons, linestrings, etc., and filtering out the stuff that cannot be easily categorized. 
+
+Inevitably this step is lossy. Currently, relations are not processed for reasons of complexity and limited amount of data (only a few hundred thousand relations exist). A preliminary break down based on grepping through the file suggests that the following can be recovered from relations:
 
 350K relations:
 * admin_levels (60K) multi_polygons
@@ -77,6 +81,8 @@ The process involves interpreting what the OSM tags mean, categorizing, reconstr
 * other 34K (mix of all kinds of uncategorized metadata)
 
 Potentially admin_levels and routes may be of interest.
+
+The good news is that the post processing step is easy to customise. All it does is iterate over the joined json from the OsmJoin step.
 
 # Misc thoughts on OSM
 
