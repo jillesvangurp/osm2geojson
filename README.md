@@ -70,7 +70,11 @@ The goal of this step is to take the output files of OsmJoin and filter, transfo
 
 The process involves interpreting what the OSM tags mean, categorizing, reconstructing polygons, linestrings, etc., and filtering out the stuff that cannot be easily categorized. 
 
-Inevitably this step is lossy. Currently, relations are not processed for reasons of complexity and limited amount of data (only a few hundred thousand relations exist). A preliminary break down based on grepping through the file suggests that the following can be recovered from relations:
+
+
+Inevitably this step is lossy. The current version recovers about 25M ways and 5M pois world wide with names and sensible categories. This includes most relevant streets, restaurants, transport stops, and other pois. A lot of what remains is either without a name (e.g. many buildings don't have names) or part of some less interesting map feature like a forest or a lake.
+
+Currently, relations are not processed for reasons of complexity and limited amount of data (only a few hundred thousand relations exist). A preliminary break down based on grepping through the file suggests that the following can be recovered from relations:
 
 350K relations:
 * admin_levels (60K) multi_polygons
