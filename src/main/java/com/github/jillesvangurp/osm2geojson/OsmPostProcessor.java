@@ -25,15 +25,15 @@ import com.github.jsonj.tools.JsonParser;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
+import java.io.Closeable;
 
 /**
  * Take the osm joined json and convert to a more structured geojson.
  *
  */
 public class OsmPostProcessor {
+
     private static final Logger LOG = LoggerFactory.getLogger(OsmPostProcessor.class);
-
-
     private static final String OSM_POIS_GZ = "osm-pois.gz";
     private static final String OSM_WAYS_GZ = "osm-ways.gz";
     private static final String OSM_RELATIONS_GZ = "osm-relations.gz";
@@ -46,12 +46,66 @@ public class OsmPostProcessor {
         jsonParsingProcessor = new NodeJsonParsingProcessor(parser);
     }
 
-    private void processNodes() {
+    public interface JsonWriter extends Closeable {
+
+        void add(JsonObject json) throws IOException;
+    }
+
+    public enum OsmType {
+
+        POI("poi"), WAY("way"), RELATION("relation");
+        private String name;
+
+        private OsmType(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }                
+    }
+
+    protected JsonWriter createJsonWriter(OsmType type) throws IOException {
+        final String location;
+        switch (type) {
+            case POI:
+                location = OSM_POIS_GZ;
+                break;
+            case WAY:
+                location = OSM_WAYS_GZ;
+                break;
+            case RELATION:
+                location = OSM_RELATIONS_GZ;
+                break;
+            default:
+                throw new IllegalArgumentException("cannot happen");
+        }
+
+        return new JsonWriter() {
+            BufferedWriter out;
+
+            {
+                out = ResourceUtil.gzipFileWriter(location);
+            }
+
+            @Override
+            public void add(JsonObject json) throws IOException {
+                out.append(json.toString() + '\n');
+            }
+
+            @Override
+            public void close() throws IOException {
+                out.close();
+            }
+        };
+    }
+
+    public void processNodes() {
         try (LoggingCounter counter = LoggingCounter.counter(LOG, "process nodes", "nodes", 100000)) {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.NODE_ID_NODEJSON_MAP);
-            try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_POIS_GZ)) {
-                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
-
+            try (JsonWriter writer = createJsonWriter(OsmType.POI)) {
+                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
                     public JsonObject process(JsonObject input) {
                         if(input != null) {
@@ -68,15 +122,15 @@ public class OsmPostProcessor {
                             );
                             geoJson = interpretTags(input, geoJson);
                             counter.inc();
-                            return  geoJson;
+                            return geoJson;
                         }
                         return null;
                     }
                 });
                 try (ConcurrentProcessingIterable<String, JsonObject> concIt = processConcurrently(lineIterable, p, 10, 9, 100)) {
-                    for(JsonObject o:concIt) {
-                        if(o != null) {
-                            out.append(o.toString()+'\n');
+                    for (JsonObject o : concIt) {
+                        if (o != null) {
+                            writer.add(o);
                         }
                     }
                 } catch (IOException e) {
@@ -88,12 +142,11 @@ public class OsmPostProcessor {
         }
     }
 
-    private void processWays() {
+    public void processWays() {
         try(LoggingCounter counter = LoggingCounter.counter(LOG, "process ways", "ways", 100000)) {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.WAY_ID_COMPLETE_JSON);
-            try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_WAYS_GZ)) {
-                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
-
+            try (JsonWriter writer = createJsonWriter(OsmType.WAY)) {
+                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
                     public JsonObject process(JsonObject input) {
                         String id = input.getString("id");
@@ -109,14 +162,13 @@ public class OsmPostProcessor {
                         );
                         geoJson = interpretTags(input, geoJson);
                         counter.inc();
-                        return  geoJson;
+                        return geoJson;
                     }
-
                 });
                 try (ConcurrentProcessingIterable<String, JsonObject> concIt = processConcurrently(lineIterable, p, 10, 9, 100)) {
-                    for(JsonObject o:concIt) {
-                        if(o != null) {
-                            out.append(o.toString()+'\n');
+                    for (JsonObject o : concIt) {
+                        if (o != null) {
+                            writer.add(o);
                         }
                     }
                 } catch (IOException e) {
@@ -144,12 +196,11 @@ public class OsmPostProcessor {
         return geometry;
     }
 
-    private void processRelations() {
+    public void processRelations() {
         try {
             LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.REL_ID_COMPLETE_JSON);
-            try(BufferedWriter out = ResourceUtil.gzipFileWriter(OSM_RELATIONS_GZ)) {
-                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject,JsonObject>(){
-
+            try (JsonWriter writer = createJsonWriter(OsmType.RELATION)) {
+                Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
                     public JsonObject process(JsonObject input) {
                         // FIXME see if we can extract some useful things from relations
@@ -165,9 +216,9 @@ public class OsmPostProcessor {
                     }
                 });
                 try (ConcurrentProcessingIterable<String, JsonObject> concIt = processConcurrently(lineIterable, p, 10, 9, 100)) {
-                    for(JsonObject o:concIt) {
-                        if(o != null) {
-                            out.append(o.toString()+'\n');
+                    for (JsonObject o : concIt) {
+                        if (o != null) {
+                            writer.add(o);
                         }
                     }
                 } catch (IOException e) {
@@ -179,7 +230,7 @@ public class OsmPostProcessor {
         }
     }
 
-    private JsonObject interpretTags(JsonObject input, JsonObject geoJson) {
+    protected JsonObject interpretTags(JsonObject input, JsonObject geoJson) {
         JsonObject tags = input.getObject("tags");
         JsonObject address = new JsonObject();
         JsonObject name = new JsonObject();
@@ -194,40 +245,40 @@ public class OsmPostProcessor {
                 name.getOrCreateArray(language).add(value);
             } else {
                 switch (tagName) {
-                case "highway":
-                    osmCategories.add("street");
+                    case "highway":
+                        osmCategories.add("street");
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "leisure":
+                        break;
+                    case "leisure":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "amenity":
+                        break;
+                    case "amenity":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "natural":
+                        break;
+                    case "natural":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "historic":
+                        break;
+                    case "historic":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "cuisine":
+                        break;
+                    case "cuisine":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "tourism":
+                        break;
+                    case "tourism":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "shop":
+                        break;
+                    case "shop":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "building":
+                        break;
+                    case "building":
                     osmCategories.add(tagName +":"+value);
-                    break;
-                case "admin-level":
+                        break;
+                    case "admin-level":
                     osmCategories.add(tagName +":"+value);
-                    break;
+                        break;
 
-                default:
-                    break;
+                    default:
+                        break;
                 }
             }
         }
@@ -282,7 +333,7 @@ public class OsmPostProcessor {
         return geoJson;
     }
 
-    private static boolean hasPair(JsonObject object, String key, String value) {
+    protected static boolean hasPair(JsonObject object, String key, String value) {
         String objectValue = object.getString(key);
         if(objectValue != null) {
             return value.equalsIgnoreCase(objectValue);
