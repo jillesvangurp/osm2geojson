@@ -10,6 +10,7 @@ import java.util.List;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import com.github.jillesvangurp.osm2geojson.EntryJoiningIterable;
 import com.github.jillesvangurp.osm2geojson.EntryJoiningIterable.JoinedEntries;
 
 @Test
