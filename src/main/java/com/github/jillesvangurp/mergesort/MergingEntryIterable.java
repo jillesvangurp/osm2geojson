@@ -9,10 +9,12 @@ import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-import com.github.jillesvangurp.osm2geojson.EntryParsingProcessor;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.PeekableIterator;
 
+/**
+ * Merges a number of iterables of entries that are sorted on their key to produce s single iterable that yields the entries in a sorted order.
+ */
 public class MergingEntryIterable implements Iterable<Entry<String,String>>{
 
     private final List<LineIterable> iterables;
@@ -23,6 +25,7 @@ public class MergingEntryIterable implements Iterable<Entry<String,String>>{
 
     @Override
     public Iterator<Entry<String, String>> iterator() {
+        // use a priority queue to ensure that the iterable with the next entry is at the had of the queue.
         final PriorityQueue<PeekableIterator<Entry<String,String>>> iterators = new PriorityQueue<>(iterables.size(), new Comparator<PeekableIterator<Entry<String,String>>>() {
 
             @Override
@@ -34,6 +37,7 @@ public class MergingEntryIterable implements Iterable<Entry<String,String>>{
         });
 
         for(LineIterable it: iterables) {
+            // use peekable iterators so that we can inspect the next value of each iterator before it is yielded
             PeekableIterator<Entry<String,String>> peekableIterator = new PeekableIterator<Entry<String,String>>(map(it, new EntryParsingProcessor()));
             if(peekableIterator.hasNext()) {
                 iterators.add(peekableIterator);
@@ -48,9 +52,11 @@ public class MergingEntryIterable implements Iterable<Entry<String,String>>{
                     return true;
                 } else {
                     if(iterators.size()>0) {
+                        // get the iterator with the next entry from the priority queue
                         PeekableIterator<Entry<String, String>> iterator = iterators.poll();
                         next = iterator.next();
                         if(iterator.hasNext()) {
+                            // insert it back into the priority queue
                             iterators.offer(iterator);
                         }
                     }

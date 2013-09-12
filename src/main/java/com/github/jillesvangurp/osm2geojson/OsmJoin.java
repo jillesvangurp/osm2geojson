@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
 import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.mergesort.EntryParsingProcessor;
 import com.github.jillesvangurp.mergesort.SortingWriter;
 import com.github.jillesvangurp.metrics.StopWatch;
 import com.github.jillesvangurp.osm2geojson.EntryJoiningIterable.JoinedEntries;

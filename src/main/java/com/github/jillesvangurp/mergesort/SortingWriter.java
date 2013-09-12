@@ -41,6 +41,17 @@ public class SortingWriter implements Closeable {
 
     private final LoggingCounter loggingCounter;
 
+    /**
+     * @param tempDir
+     *            this directory is used for bucket files. Note. this class will blindly overwrite any pre-existing
+     *            bucket files.
+     * @param output
+     *            the file with the sorted output.
+     * @param bucketSize
+     *            the number of entries in the bucket. Each bucket is sorted in memory before being written to disk.
+     *            Ensure you have enough memory available for doing this for a given bucket size.
+     * @throws IOException
+     */
     public SortingWriter(String tempDir, String output, int bucketSize) throws IOException {
         this.tempDir = tempDir;
         this.output = output;
@@ -51,6 +62,11 @@ public class SortingWriter implements Closeable {
         loggingCounter = LoggingCounter.counter(LOG, "sort buckets " + output , "lines", 100000);
     }
 
+    /**
+     * Add an element to the sorted file.
+     * @param key the key to sort on
+     * @param value the value
+     */
     public void put(String key, String value) {
         if (bucket.size() >= bucketSize) {
             flushBucket(false);
@@ -97,39 +113,38 @@ public class SortingWriter implements Closeable {
         }
     }
 
-    public static String key(String line) {
-        int idx = line.indexOf(';');
-        if (idx < 0) {
-            throw new IllegalStateException("line has no key " + line);
-        }
-        return line.substring(0, idx);
-    }
-
     @Override
     public void close() throws IOException {
         if (bucket.size() > 0) {
+            // flush any remaining entries
             flushBucket(true);
         }
         loggingCounter.close();
         LoggingCounter mergeCounter = LoggingCounter.counter(LOG, "merge buckets into "  + output, " lines", 100000);
         List<LineIterable> lineIterables = new ArrayList<>();
         try {
+            // important, ensure you have enough filehandles available for the number of buckets. In Linux, you may need to configure this. See README.
             for (String file : bucketFiles) {
                 lineIterables.add(LineIterable.openGzipFile(file));
             }
             LOG.info("merging " + lineIterables.size() + " buckets");
 
-            MergingEntryIterable mergeIt = new MergingEntryIterable(lineIterables);
+            // merge the buckets
+            MergingEntryIterable merged = new MergingEntryIterable(lineIterables);
 
             try (BufferedWriter bw = ResourceUtil.gzipFileWriter(output)) {
-                for (Entry<String, String> entry : mergeIt) {
+                for (Entry<String, String> entry : merged) {
                     bw.write(entry.toString() + '\n');
                     mergeCounter.inc();
                 }
             }
         } finally {
             for (LineIterable li : lineIterables) {
-                li.close();
+                try {
+                    li.close();
+                } catch (Exception e) {
+                    LOG.error("cannot close file", e);
+                }
             }
             mergeCounter.close();
             FileUtils.deleteDirectory(new File(tempDir));

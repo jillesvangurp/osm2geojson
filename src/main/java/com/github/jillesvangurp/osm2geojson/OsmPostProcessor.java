@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.jillesvangurp.common.ResourceUtil;
+import com.github.jillesvangurp.mergesort.EntryParsingProcessor;
 import com.github.jillesvangurp.metrics.LoggingCounter;
 import com.github.jillesvangurp.metrics.StopWatch;
 import com.github.jsonj.JsonArray;

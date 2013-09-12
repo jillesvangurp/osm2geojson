@@ -1,4 +1,4 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.mergesort;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -6,6 +6,8 @@ import static org.hamcrest.Matchers.is;
 import java.util.Map.Entry;
 
 import org.testng.annotations.Test;
+
+import com.github.jillesvangurp.mergesort.EntryParsingProcessor;
 
 @Test
 public class EntryParsingProcessorTest {

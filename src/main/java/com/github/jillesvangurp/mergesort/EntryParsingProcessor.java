@@ -1,8 +1,8 @@
-package com.github.jillesvangurp.osm2geojson;
+package com.github.jillesvangurp.mergesort;
 
 import java.util.Map.Entry;
 
-import com.github.jillesvangurp.common.EntryImpl;
+import com.github.jillesvangurp.common.ImmutableEntry;
 import com.jillesvangurp.iterables.Processor;
 
 public class EntryParsingProcessor implements Processor<String, Entry<String,String>> {
@@ -12,7 +12,7 @@ public class EntryParsingProcessor implements Processor<String, Entry<String,Str
         int idx = line.indexOf(';');
         final String key=line.substring(0,idx);
         final String value=line.substring(idx+1);
-        return new EntryImpl(value, key);
+        return new ImmutableEntry<String, String>(key, value);
 
     }
 
