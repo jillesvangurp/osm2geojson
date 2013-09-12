@@ -7,4 +7,5 @@ test-output
 osmkv-*
 *gz
 *log
-
+tmp
+nbactions.xml
