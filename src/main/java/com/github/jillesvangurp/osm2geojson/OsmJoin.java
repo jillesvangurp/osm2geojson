@@ -34,6 +34,7 @@ import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.PeekableIterator;
 import com.jillesvangurp.iterables.Processor;
+import org.apache.commons.lang.StringEscapeUtils;
 
 public class OsmJoin {
     private static final Logger LOG = LoggerFactory.getLogger(OsmJoin.class);
@@ -166,7 +167,7 @@ public class OsmJoin {
                 JsonObject tags=new JsonObject();
                 while (kvm.find()) {
                     String name = kvm.group(1);
-                    tags.put(name, kvm.group(2));
+                    tags.put(name, StringEscapeUtils.unescapeXml(kvm.group(2)));
                 }
                 if(tags.size()>0) {
                     node.put("tags", tags);
@@ -181,7 +182,7 @@ public class OsmJoin {
             problemNodes.write(input+'\n');
         }
     }
-
+    
     private void parseWay(SortingWriter waysWriter, BufferedWriter problemWays, SortingWriter nodeid2WayidWriter, String input) throws XPathExpressionException, SAXException, IOException {
 
         Matcher idm = idPattern.matcher(input);
