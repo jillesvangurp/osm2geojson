@@ -75,7 +75,8 @@ public class SortingWriter implements Closeable {
         try {
             boolean added = bucket.put(key, value);
             if(!added) {
-                LOG.warn("failed to add " +key+";"+value);
+                // TODO better alternative than loggin?
+                // LOG.warn("failed to add " +key+";"+value);
             } else {
                 loggingCounter.inc();
             }

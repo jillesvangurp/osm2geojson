@@ -27,6 +27,7 @@ import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
 import java.io.Closeable;
+import java.io.File;
 
 /**
  * Take the osm joined json and convert to a more structured geojson.
@@ -41,12 +42,20 @@ public class OsmPostProcessor {
     private final EntryParsingProcessor entryParsingProcessor = new EntryParsingProcessor();
     private final JsonParser parser;
     private final Processor<Entry<String,String>,JsonObject> jsonParsingProcessor;
+    private String dir = "./";
 
     public OsmPostProcessor(JsonParser jsonParser) {
         this.parser = jsonParser;
         jsonParsingProcessor = new NodeJsonParsingProcessor(parser);
     }
 
+    public OsmPostProcessor setDirectory(String dir) {
+        this.dir = dir;
+        if(!this.dir.endsWith(File.separator))
+            this.dir += File.separator;
+        return this;
+    }
+    
     public interface JsonWriter extends Closeable {
 
         void add(JsonObject json) throws IOException;
@@ -104,7 +113,7 @@ public class OsmPostProcessor {
 
     public void processNodes() {
         try (LoggingCounter counter = LoggingCounter.counter(LOG, "process nodes", "nodes", 100000)) {
-            LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.NODE_ID_NODEJSON_MAP);
+            LineIterable lineIterable = LineIterable.openGzipFile(dir + OsmJoin.NODE_ID_NODEJSON_MAP);
             try (JsonWriter writer = createJsonWriter(OsmType.POI)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
@@ -145,7 +154,7 @@ public class OsmPostProcessor {
 
     public void processWays() {
         try(LoggingCounter counter = LoggingCounter.counter(LOG, "process ways", "ways", 100000)) {
-            LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.WAY_ID_COMPLETE_JSON);
+            LineIterable lineIterable = LineIterable.openGzipFile(dir + OsmJoin.WAY_ID_COMPLETE_JSON);
             try (JsonWriter writer = createJsonWriter(OsmType.WAY)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
@@ -199,7 +208,7 @@ public class OsmPostProcessor {
 
     public void processRelations() {
         try {
-            LineIterable lineIterable = LineIterable.openGzipFile(OsmJoin.REL_ID_COMPLETE_JSON);
+            LineIterable lineIterable = LineIterable.openGzipFile(dir + OsmJoin.REL_ID_COMPLETE_JSON);
             try (JsonWriter writer = createJsonWriter(OsmType.RELATION)) {
                 Processor<String, JsonObject> p = compose(entryParsingProcessor, jsonParsingProcessor, new Processor<JsonObject, JsonObject>() {
                     @Override
