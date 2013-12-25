@@ -2,6 +2,7 @@ package com.github.jillesvangurp.mergesort;
 
 import static com.jillesvangurp.iterables.Iterables.map;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -26,7 +27,11 @@ public class MergingEntryIterable implements Iterable<Entry<String,String>>{
     @Override
     public Iterator<Entry<String, String>> iterator() {
         // use a priority queue to ensure that the iterable with the next entry is at the had of the queue.
-        final PriorityQueue<PeekableIterator<Entry<String,String>>> iterators = new PriorityQueue<>(iterables.size(), new Comparator<PeekableIterator<Entry<String,String>>>() {
+        int size = iterables.size();
+        if(size == 0) {
+            return new ArrayList<Entry<String, String>>().iterator();
+        }
+        final PriorityQueue<PeekableIterator<Entry<String,String>>> iterators = new PriorityQueue<>(size, new Comparator<PeekableIterator<Entry<String,String>>>() {
 
             @Override
             public int compare(PeekableIterator<Entry<String, String>> o1, PeekableIterator<Entry<String, String>> o2) {

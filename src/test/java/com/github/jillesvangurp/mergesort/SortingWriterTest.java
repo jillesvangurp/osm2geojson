@@ -124,6 +124,14 @@ public class SortingWriterTest {
         assertThat(count(LineIterable.openGzipFile(outputFile)),is(lines));
     }
 
+    public void shouldHandleNoElements() throws IOException {
+        String outputFile = new File(tempDir,"out.gz").getAbsolutePath();
+        try(SortingWriter sortingWriter = new SortingWriter(tempDir+"/work", outputFile, 1000)) {
+            // do nothing and cause close to be called right away
+        }
+        assertThat(count(LineIterable.openGzipFile(outputFile)),is(0l));
+    }
+
     @AfterMethod
     public void afterMethod() throws IOException {
         FileUtils.forceDelete(new File(tempDir));
