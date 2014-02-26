@@ -15,9 +15,18 @@ OsmJoin is the tool that joins the osm nodes, ways, and relations into more usab
 
 A separate tool that takes the output of OsmJoin and procuces geojson is provided as well (see OsmPostProcess below). The latter tool requires interpreting the meaning of tags in OSM, which given inconsistencies and ambiguities is hardly an exact science.
 
-## Installation and use
+# Building from source
 
-This project utilizes a few of my other github projects. Prebuilt binaries for those projects can be downloaded from my private maven repository here: http://www.jillesvangurp.com/2013/02/27/maven-and-my-github-projects/. Alternatively, you can check them out manually and mvn clean install them yourself.
+It's a maven project. So, checking it out and doing a mvn clean install should do the trick. You should always get the latest version from github and build it yourself. I'm not currently releasing binaries to maven central for this.
+
+
+Should anyone like this licensed differently, please contact me.
+
+If anyone wants to fix stuff just send me a pull request.
+
+Alternatively, you can exercise your rights under the license and simply copy and adapt as needed. The "license":https://github.com/jillesvangurp/geogeometry/blob/master/LICENSE allows you to do this and I have no problems with this although I do appreciate attribution.
+
+## Usage
 
 After setting this up, you should be able to run mvn clean install on this project. It will compile and then put some libraries in target/lib. These are needed to run the osmjoin.sh script. Alternatively, you can run this from your IDE. 
 

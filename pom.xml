@@ -23,13 +23,19 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>com.github.jillesvangurp</groupId>
+    <groupId>com.jillesvangurp</groupId>
     <artifactId>osm2geojson</artifactId>
     <version>1.0-SNAPSHOT</version>
 
     <name>osm2geojson</name>
     <description>Tool to convert osm xml to geojson</description>
     <url>https://jillesvangurp.com</url>
+
+    <scm>
+        <url>git@github.com:jillesvangurp/osm2geojson.git</url>
+        <connection>scm:git:git@github.com:jillesvangurp/osm2geojson.git</connection>
+        <developerConnection>scm:git:git@github.com:jillesvangurp/osm2geojson.git</developerConnection>
+    </scm>
 
     <licenses>
         <license>
@@ -39,23 +45,33 @@
         </license>
     </licenses>
 
-    <scm>
-        <url>git@github.com:jillesvangurp/osm2geojson.git</url>
-        <connection>scm:git:git@github.com:jillesvangurp/osm2geojson.git</connection>
-        <developerConnection>scm:git:git@github.com:jillesvangurp/osm2geojson.git</developerConnection>
-    </scm>
+    <repositories>
+        <repository>
+            <id>sonatype-nexus-snapshots</id>
+            <name>Sonatype Nexus Snapshots</name>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
-	<distributionManagement>
-		<repository>
-			<id>release.repo</id>
-			<url>dav:http://repo.jillesvangurp.com/releases/</url>
-		</repository>
-		<snapshotRepository>
-			<id>snapshot.repo</id>
-			<url>dav:http://repo.jillesvangurp.com/snapshots/</url>
-		</snapshotRepository>
-	</distributionManagement>
-
+    <distributionManagement>
+        <snapshotRepository>
+            <id>sonatype-nexus-snapshots</id>
+            <name>Sonatype Nexus Snapshots</name>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>sonatype-nexus-staging</id>
+            <name>Nexus Release Repository</name>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+    
     <developers>
         <developer>
             <id>jillesvangurp</id>
@@ -67,6 +83,7 @@
             </roles>
         </developer>
     </developers>
+
     <organization>
         <name>www.jillesvangurp.com</name>
         <url>http://jillesvangurp.com</url>
@@ -119,18 +136,15 @@
                 </executions>
             </plugin>
             <plugin>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>copy-dependencies</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>1.6</version>
+                <extensions>true</extensions>                
+                <configuration>
+                    <!-- The Base URL of Nexus instance where we want to stage -->
+                    <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                    <serverId>sonatype-nexus-staging</serverId>
+                </configuration>
             </plugin>            
         </plugins>
         <extensions>
@@ -140,12 +154,34 @@
             <version>2.2</version>
             </extension>
         </extensions>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>2.1</version>
+                    <configuration>
+                        <mavenExecutorId>forked-path</mavenExecutorId>
+                        <useReleaseProfile>false</useReleaseProfile>
+                        <arguments>-Psonatype-oss-release</arguments>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>        
     </build>
     <profiles>
         <profile>
-            <id>signartifacts</id>
+            <id>sonatype-oss-release</id>
             <build>
                 <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                    </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
@@ -161,7 +197,7 @@
                     </plugin>
                 </plugins>
             </build>
-        </profile>
+        </profile>        
     </profiles>
 
     <dependencies>
@@ -204,7 +240,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>15.0</version>
+            <version>16.0.1</version>
         </dependency>
         <dependency>
             <groupId>commons-lang</groupId>
@@ -212,9 +248,9 @@
             <version>2.6</version>
         </dependency>
         <dependency>
-            <groupId>com.github.jillesvangurp</groupId>
+            <groupId>com.jillesvangurp</groupId>
             <artifactId>iterables-support</artifactId>
-            <version>1.6</version>
+            <version>1.7</version>
         </dependency>
         <dependency>
         	<groupId>org.apache.commons</groupId>
@@ -222,9 +258,9 @@
         	<version>1.5</version>
         </dependency>
         <dependency>
-        	<groupId>com.github.jsonj</groupId>
+        	<groupId>com.jillesvangurp</groupId>
         	<artifactId>jsonj</artifactId>
-        	<version>1.30</version>
+        	<version>1.33</version>
         </dependency>
         <dependency>
         	<groupId>ch.qos.logback</groupId>
