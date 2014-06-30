@@ -50,7 +50,7 @@ public class SortingWriter implements Closeable {
      * @param bucketSize
      *            the number of entries in the bucket. Each bucket is sorted in memory before being written to disk.
      *            Ensure you have enough memory available for doing this for a given bucket size.
-     * @throws IOException
+     * @throws IOException when creating the directory fails
      */
     public SortingWriter(String tempDir, String output, int bucketSize) throws IOException {
         this.tempDir = tempDir;

@@ -4,8 +4,8 @@ import java.util.Map.Entry;
 
 /**
  * Simple generic implementation of an entry that should serve most common purposes.
- * @param <K>
- * @param <V>
+ * @param <K> key
+ * @param <V> value
  */
 public final class ImmutableEntry<K, V> implements Entry<K, V> {
     private final K key;

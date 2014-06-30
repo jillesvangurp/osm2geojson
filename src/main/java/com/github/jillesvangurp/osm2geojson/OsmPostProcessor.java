@@ -1,13 +1,15 @@
 package com.github.jillesvangurp.osm2geojson;
 
-import static com.github.jsonj.tools.JsonBuilder.$;
-import static com.github.jsonj.tools.JsonBuilder._;
 import static com.github.jsonj.tools.JsonBuilder.array;
+import static com.github.jsonj.tools.JsonBuilder.field;
+import static com.github.jsonj.tools.JsonBuilder.object;
 import static com.github.jsonj.tools.JsonBuilder.set;
 import static com.jillesvangurp.iterables.Iterables.compose;
 import static com.jillesvangurp.iterables.Iterables.processConcurrently;
 
 import java.io.BufferedWriter;
+import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.util.Map.Entry;
 
@@ -26,8 +28,6 @@ import com.github.jsonj.tools.JsonParser;
 import com.jillesvangurp.iterables.ConcurrentProcessingIterable;
 import com.jillesvangurp.iterables.LineIterable;
 import com.jillesvangurp.iterables.Processor;
-import java.io.Closeable;
-import java.io.File;
 
 /**
  * Take the osm joined json and convert to a more structured geojson.
@@ -51,11 +51,12 @@ public class OsmPostProcessor {
 
     public OsmPostProcessor setDirectory(String dir) {
         this.dir = dir;
-        if(!this.dir.endsWith(File.separator))
+        if(!this.dir.endsWith(File.separator)) {
             this.dir += File.separator;
+        }
         return this;
     }
-    
+
     public interface JsonWriter extends Closeable {
 
         void add(JsonObject json) throws IOException;
@@ -73,7 +74,7 @@ public class OsmPostProcessor {
         @Override
         public String toString() {
             return name;
-        }                
+        }
     }
 
     protected JsonWriter createJsonWriter(OsmType type) throws IOException {
@@ -124,11 +125,11 @@ public class OsmPostProcessor {
                             if(name == null) {
                                 return null;
                             }
-                            JsonObject geometry=$(_("type","Point"),_("coordinates",input.getArray("l")));
-                            JsonObject geoJson = $(
-                                    _("id", "osmnode/"+id),
-                                    _("title",name),
-                                    _("geometry",geometry)
+                            JsonObject geometry=object(field("type","Point"),field("coordinates",input.getArray("l")));
+                            JsonObject geoJson = object(
+                                    field("id", "osmnode/"+id),
+                                    field("title",name),
+                                    field("geometry",geometry)
                             );
                             geoJson = interpretTags(input, geoJson);
                             counter.inc();
@@ -165,10 +166,10 @@ public class OsmPostProcessor {
                             return null;
                         }
                         JsonObject geometry = getWayGeometry(input);
-                        JsonObject geoJson = $(
-                                _("id", "osmway/"+id),
-                                _("title",name),
-                                _("geometry",geometry)
+                        JsonObject geoJson = object(
+                                field("id", "osmway/"+id),
+                                field("title",name),
+                                field("geometry",geometry)
                         );
                         geoJson = interpretTags(input, geoJson);
                         counter.inc();
@@ -202,7 +203,7 @@ public class OsmPostProcessor {
             coordinates = array();
             coordinates.add(cs);
         }
-        JsonObject geometry=$(_("type",type),_("coordinates",coordinates));
+        JsonObject geometry=object(field("type",type),field("coordinates",coordinates));
         return geometry;
     }
 
@@ -329,7 +330,7 @@ public class OsmPostProcessor {
         }
 
         if(osmCategories.size() > 0) {
-            geoJson.put("categories", $(_("osm",osmCategories)));
+            geoJson.put("categories", object(field("osm",osmCategories)));
         } else {
             // skip uncategorizable stuff
             return null;
@@ -338,7 +339,7 @@ public class OsmPostProcessor {
             geoJson.put("address", address);
         }
         if(tags.containsKey("website")) {
-            geoJson.getOrCreateArray("links").add($(_("href",tags.getString("website"))));
+            geoJson.getOrCreateArray("links").add(object(field("href",tags.getString("website"))));
         }
         return geoJson;
     }
