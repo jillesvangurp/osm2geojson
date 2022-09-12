@@ -13,7 +13,7 @@ This project merges the three into json blobs that have all the relevant informa
 
 OsmJoin is the tool that joins the osm nodes, ways, and relations into more usable json equivalents. No attempt is made to filter the data and all tags are preserved.
 
-A separate tool that takes the output of OsmJoin and procuces geojson is provided as well (see OsmPostProcess below). The latter tool requires interpreting the meaning of tags in OSM, which given inconsistencies and ambiguities is hardly an exact science.
+A separate tool that takes the output of OsmJoin and produces geojson is provided as well (see OsmPostProcess below). The latter tool requires interpreting the meaning of tags in OSM, which given inconsistencies and ambiguities is hardly an exact science.
 
 # Building from source
 
