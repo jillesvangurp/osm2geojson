@@ -1,18 +1,23 @@
 package com.github.jillesvangurp.osm2geojson
 
-import com.github.jillesvangurp.mergesort.EntryParsingProcessor
 import com.github.jillesvangurp.common.ResourceUtil
-import com.github.jsonj.JsonArray
-import com.github.jsonj.JsonObject
-import com.github.jsonj.tools.JsonBuilder
-import com.github.jsonj.tools.JsonParser
-import com.jillesvangurp.iterables.LineIterable
+import com.github.jillesvangurp.mergesort.EntryParsingProcessor
 import com.github.jillesvangurp.metrics.LoggingCounter
+import com.jillesvangurp.iterables.LineIterable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 import java.io.BufferedWriter
 import java.io.Closeable
 import java.io.IOException
-import java.util.Map.Entry
 
 /**
  * Process joined relation json and emit simple geojson.
@@ -20,7 +25,7 @@ import java.util.Map.Entry
  * This focuses on multi polygon relations and avoids holding large
  * intermediate structures in memory by processing relations one by one.
  */
-class RelationPostProcessor(private val parser: JsonParser) {
+class RelationPostProcessor(private val json: Json = Json) {
     private val log = LoggerFactory.getLogger(RelationPostProcessor::class.java)
     private val entryParsingProcessor = EntryParsingProcessor()
 
@@ -44,6 +49,7 @@ class RelationPostProcessor(private val parser: JsonParser) {
             override fun add(json: JsonObject) {
                 out.append(json.toString()).append('\n')
             }
+
             override fun close() = out.close()
         }
     }
@@ -54,7 +60,7 @@ class RelationPostProcessor(private val parser: JsonParser) {
                 createJsonWriter().use { writer ->
                     for (line in lineIterable) {
                         val entry = entryParsingProcessor.process(line)
-                        val rel = parser.parse(entry.value).asObject()
+                        val rel = json.parseToJsonElement(entry.value).jsonObject
                         relationToGeoJson(rel)?.let {
                             writer.add(it)
                             counter.inc()
@@ -66,37 +72,49 @@ class RelationPostProcessor(private val parser: JsonParser) {
     }
 
     internal fun relationToGeoJson(input: JsonObject): JsonObject? {
-        val id = input.getString("id") ?: return null
-        val name = input.getString("tags", "name") ?: return null
+        val id = input["id"]?.jsonPrimitive?.content ?: return null
+        val name = input["tags"]?.jsonObject?.get("name")?.jsonPrimitive?.content ?: return null
         val geometry = buildGeometry(input) ?: return null
-        return JsonBuilder.`object`()
-            .put("id", "osmrelation/$id")
-            .put("title", name)
-            .put("geometry", geometry)
-            .get()
+        return buildJsonObject {
+            put("id", JsonPrimitive("osmrelation/$id"))
+            put("title", JsonPrimitive(name))
+            put("geometry", geometry)
+        }
     }
 
     private fun buildGeometry(rel: JsonObject): JsonObject? {
-        val polygons = JsonArray()
-        val ways = rel.getArray("ways") ?: return null
-        for (way in ways.objects()) {
-            val coords = JsonArray()
-            val nodes = way.getArray("nodes") ?: continue
-            for (node in nodes.objects()) {
-                val l = node.getArray("l") ?: continue
+        val polygons = mutableListOf<JsonElement>()
+        val ways = rel["ways"]?.jsonArray ?: return null
+        for (wayElement in ways) {
+            val way = wayElement.jsonObject
+            val coords = mutableListOf<JsonElement>()
+            val nodes = way["nodes"]?.jsonArray ?: continue
+            for (nodeElement in nodes) {
+                val l = nodeElement.jsonObject["l"]?.jsonArray ?: continue
                 coords.add(l)
             }
-            if (coords.size > 0 && coords[0] != coords[coords.size - 1]) {
-                coords.add(coords[0])
+            if (coords.isNotEmpty() && coords.first() != coords.last()) {
+                coords.add(coords.first())
             }
-            val ring = JsonArray()
-            ring.add(coords)
+            val ring = buildJsonArray {
+                add(buildJsonArray {
+                    coords.forEach { add(it) }
+                })
+            }
             polygons.add(ring)
         }
         return when (polygons.size) {
             0 -> null
-            1 -> JsonBuilder.`object`().put("type", "Polygon").put("coordinates", polygons[0]).get()
-            else -> JsonBuilder.`object`().put("type", "MultiPolygon").put("coordinates", polygons).get()
+            1 -> buildJsonObject {
+                put("type", JsonPrimitive("Polygon"))
+                put("coordinates", polygons[0])
+            }
+            else -> buildJsonObject {
+                put("type", JsonPrimitive("MultiPolygon"))
+                put("coordinates", buildJsonArray {
+                    polygons.forEach { add(it) }
+                })
+            }
         }
     }
 
@@ -104,3 +122,4 @@ class RelationPostProcessor(private val parser: JsonParser) {
         private const val OSM_RELATIONS_GZ = "osm-relations.gz"
     }
 }
+
