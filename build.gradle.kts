@@ -22,6 +22,7 @@ dependencies {
     testImplementation("org.mockito:mockito-all:1.9.5") {
         exclude(group = "org.hamcrest", module = "hamcrest-core")
     }
+    testImplementation("io.kotest:kotest-assertions-core:5.7.2")
 }
 
 tasks.test {
