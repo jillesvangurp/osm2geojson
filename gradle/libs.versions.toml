@@ -1,0 +1,22 @@
+[versions]
+kotlin = "2.0.20"
+commons-io = "2.20.0"
+commons-compress = "1.28.0"
+logback = "1.5.18"
+testng = "7.11.0"
+hamcrest = "3.0"
+kotest = "5.9.1"
+kotlinx-serialization = "1.7.3"
+
+[libraries]
+commons-io = { group = "commons-io", name = "commons-io", version.ref = "commons-io" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commons-compress" }
+logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
+hamcrest = { group = "org.hamcrest", name = "hamcrest", version.ref = "hamcrest" }
+testng = { group = "org.testng", name = "testng", version.ref = "testng" }
+kotest-assertions-core = { group = "io.kotest", name = "kotest-assertions-core", version.ref = "kotest" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

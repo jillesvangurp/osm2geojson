@@ -1,11 +1,13 @@
 package com.github.jillesvangurp.osm2geojson
 
-import com.github.jsonj.tools.JsonParser
 import io.kotest.matchers.shouldBe
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.testng.annotations.Test
 
 class RelationPostProcessorTest {
-    private val parser = JsonParser()
+    private val json = Json
 
     @Test
     fun shouldConvertRelationToGeoJson() {
@@ -24,10 +26,11 @@ class RelationPostProcessorTest {
               ]
             }
         """.trimIndent()
-        val relation = parser.parse(relationJson).asObject()
-        val processor = RelationPostProcessor(parser)
+        val relation = json.parseToJsonElement(relationJson).jsonObject
+        val processor = RelationPostProcessor(json)
         val geo = processor.relationToGeoJson(relation)!!
-        geo.getString("id") shouldBe "osmrelation/1"
-        geo.getObject("geometry").getString("type") shouldBe "Polygon"
+        geo["id"]!!.jsonPrimitive.content shouldBe "osmrelation/1"
+        geo["geometry"]!!.jsonObject["type"]!!.jsonPrimitive.content shouldBe "Polygon"
     }
 }
+
