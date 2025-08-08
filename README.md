@@ -17,7 +17,7 @@ A separate tool that takes the output of OsmJoin and produces geojson is provide
 
 # Building from source
 
-It's a maven project. So, checking it out and doing a mvn clean install should do the trick. You should always get the latest version from github and build it yourself. I'm not currently releasing binaries to maven central for this.
+The project now builds with Gradle. Check it out and run `./gradlew build`. You should always get the latest version from github and build it yourself.
 
 
 Should anyone like this licensed differently, please contact me.
@@ -28,7 +28,7 @@ Alternatively, you can exercise your rights under the license and simply copy an
 
 ## Usage
 
-After setting this up, you should be able to run mvn clean install on this project. It will compile and then put some libraries in target/lib. These are needed to run the osmjoin.sh script. Alternatively, you can run this from your IDE. 
+After setting this up, run `./gradlew build` on this project. It will compile and then put some libraries in `build/libs`. These are needed to run the osmjoin.sh script. Alternatively, you can run this from your IDE.
 
 Make sure to assign enough heap to fit the bucket size (constant in the source code, defaults to 1M). Make sure you have enough disk space. OSM is a big data set.
 

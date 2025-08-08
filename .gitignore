@@ -9,3 +9,5 @@ osmkv-*
 *log
 tmp
 nbactions.xml
+.gradle
+build
